@@ -1,0 +1,60 @@
+name: 每日更新
+
+on:
+  schedule:
+    - cron: '0 16 * * *'    # 美东中午：记录当天比赛的盘前快照
+    - cron: '30 22 * * *'   # 美东傍晚：开赛前快照
+    - cron: '30 1 * * *'    # 晚场开赛前快照，结算早场
+    - cron: '30 7 * * *'    # 全部打完：抓比分、结算
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 取回数据库（data 分支）
+        run: |
+          if git fetch --depth=1 origin data; then git show origin/data:nba.db > nba.db; ls -la nba.db; else echo "还没有 data 分支，将从头抓取"; fi
+
+      - name: 更新比分、盘口、台账，生成网页
+        env:
+          NODE_NO_WARNINGS: '1'
+        run: |
+          node fetch.js
+          node --dns-result-order=ipv4first pm.js || echo "pm.js 失败，继续"
+          node --dns-result-order=ipv4first ledger.js || echo "ledger.js 失败，继续"
+          node build.js
+          mkdir -p site && cp index.html site/index.html
+
+      - name: 保存数据库到 data 分支（只保留最新一份，不增加仓库体积）
+        run: |
+          mkdir -p /tmp/data && cp nba.db /tmp/data/ && cd /tmp/data
+          git init -q -b data
+          git add nba.db
+          git -c user.name="github-actions[bot]" -c user.email="41898283+github-actions[bot]@users.noreply.github.com" commit -qm "数据更新 $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

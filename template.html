@@ -1,0 +1,650 @@
+<title>NBA 分节领先胜率</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* Layout: 记分牌式控制条在上，结论数字 + 全景热力表 + 比赛明细依次往下 */
+:root {
+  --bg: #F3F5F8; --panel: #FFFFFF; --ink: #142033; --muted: #5C6A80; --line: #DCE2EA;
+  --accent: #D9560B; --accent-ink: #FFFFFF; --win: #1F8A5B; --lose: #C23B3B; --mid: #EEF1F5;
+  --display: "Barlow Condensed", "Noto Sans SC", system-ui, sans-serif;
+  --body: "Noto Sans SC", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E1520; --panel: #16202E; --ink: #E7ECF3; --muted: #93A1B5; --line: #263347;
+  --accent: #F27A2E; --accent-ink: #10161F; --win: #3DBE85; --lose: #E86464; --mid: #1C2838; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0E1520; --panel: #16202E; --ink: #E7ECF3; --muted: #93A1B5; --line: #263347;
+  --accent: #F27A2E; --accent-ink: #10161F; --win: #3DBE85; --lose: #E86464; --mid: #1C2838; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px }
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 20px }
+header h1 { font: 700 34px/1.05 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance }
+header p { margin: 6px 0 0; color: var(--muted); max-width: 70ch }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 16px }
+.ctl { display: grid; gap: 6px; min-width: 0 }
+.ctl > span { font-size: 12px; color: var(--muted); letter-spacing: .04em }
+select, input[type=number] { width: 100%; font: 500 14px var(--body); color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg) }
+.seg button { flex: 1; font: 500 13px var(--body); color: var(--muted); background: none; border: 0; padding: 8px 4px; cursor: pointer; white-space: nowrap }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink) }
+.checks { display: flex; flex-wrap: wrap; gap: 6px }
+.checks label { display: inline-flex; align-items: center; gap: 5px; font: 500 13px var(--mono); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; cursor: pointer; background: var(--bg) }
+.checks input { accent-color: var(--accent); margin: 0 }
+.cond { display: grid; grid-template-columns: 1fr 88px; gap: 8px }
+.cond.range { grid-template-columns: 1fr 1fr }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+select:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent) }
+.checks input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none }
+
+.result { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: stretch }
+@media (max-width: 720px) { .result { grid-template-columns: 1fr } }
+.verdict .q { color: var(--muted); font-size: 13px }
+.verdict .big { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-top: 4px }
+.verdict .pct { font: 700 72px/1 var(--display); font-variant-numeric: tabular-nums }
+.verdict .rec { font: 600 16px var(--mono); color: var(--muted) }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px }
+.chip { font: 500 12px var(--body); border-radius: 999px; padding: 3px 10px; border: 1px solid var(--line); background: var(--mid) }
+.chip.warn { border-color: var(--lose); color: var(--lose); background: none }
+.chip.up { border-color: var(--win); color: var(--win); background: none }
+.chip.down { border-color: var(--lose); color: var(--lose); background: none }
+.compare { display: grid; gap: 12px }
+.kv { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--line); padding-bottom: 8px }
+.kv:last-child { border-bottom: 0; padding-bottom: 0 }
+.kv b { font: 600 18px var(--mono); font-variant-numeric: tabular-nums }
+.kv small { display: block; color: var(--muted); font-size: 12px }
+.bar { height: 8px; border-radius: 4px; background: var(--mid); overflow: hidden; margin-top: 6px }
+.bar i { display: block; height: 100%; background: var(--accent) }
+
+h2 { font: 700 20px/1.2 var(--display); letter-spacing: .02em; margin: 0 0 4px }
+.sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px }
+.scroll { overflow-x: auto }
+table { border-collapse: separate; border-spacing: 3px; width: 100%; font-variant-numeric: tabular-nums }
+th { font: 500 12px var(--body); color: var(--muted); text-align: left; padding: 4px 6px; white-space: nowrap }
+td.lab { font: 500 13px var(--body); white-space: nowrap; padding-right: 10px }
+td.cell { text-align: center; border-radius: 5px; padding: 8px 6px; min-width: 96px; cursor: pointer; border: 1px solid transparent }
+td.cell:hover { border-color: var(--ink) }
+td.cell.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent) }
+td.cell .p { font: 600 15px var(--mono) }
+td.cell .n { font: 500 11px var(--mono); opacity: .8 }
+td.cell.empty { color: var(--muted); background: var(--mid); cursor: default }
+
+.h2hsum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px }
+.h2hsum div { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px }
+.h2hsum b { display: block; font: 700 20px/1.2 var(--mono) }
+.h2hsum small { color: var(--muted); font-size: 12px }
+.games td.pos { color: var(--win) } .games td.neg { color: var(--lose) }
+.games { width: 100%; border-spacing: 0; font-size: 13px }
+.games th, .games td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap }
+.games td.num { font-family: var(--mono) }
+.wl { font: 600 12px var(--mono); padding: 2px 7px; border-radius: 4px; color: var(--accent-ink) }
+.wl.w { background: var(--win) } .wl.l { background: var(--lose) }
+.more { margin-top: 10px; font: 500 13px var(--body); color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer }
+footer { color: var(--muted); font-size: 12px }
+.calc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px }
+@media (max-width: 720px) { .calc { grid-template-columns: 1fr } }
+.calc-in { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px 14px; align-content: start }
+.calc-in .wide { grid-column: 1 / -1 }
+.unit { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px }
+.unit em { font: 500 12px var(--mono); color: var(--muted); font-style: normal }
+.calc-out { display: grid; gap: 10px; align-content: start }
+.fair { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap }
+.fair .pct { font: 700 56px/1 var(--display); font-variant-numeric: tabular-nums }
+.fair .rec { font: 600 15px var(--mono); color: var(--muted) }
+.edge { border-radius: 8px; padding: 10px 12px; border: 1px solid var(--line); background: var(--mid) }
+.edge b { font: 600 18px var(--mono) }
+.edge.good { border-color: var(--win) } .edge.good b { color: var(--win) }
+.edge.bad { border-color: var(--lose) } .edge.bad b { color: var(--lose) }
+.edge p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px }
+.ptab td.cell { min-width: 64px; cursor: default; padding: 6px 4px }
+.ptab td.cell.now { box-shadow: inset 0 0 0 2px var(--ink) }
+.tabs { max-width: 360px }
+.tabs button { font-size: 14px; padding: 10px 8px }
+.pmctl { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px 16px }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px }
+.stats div { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px }
+.stats b { display: block; font: 700 22px/1.2 var(--mono) }
+.stats small { color: var(--muted); font-size: 12px }
+.path { font-family: var(--mono); color: var(--muted) }
+.path b { color: var(--ink) }
+.up9 { color: var(--win) } .dn9 { color: var(--lose) }
+.upset { font-size: 12px; color: var(--accent); font-weight: 600 }
+.games th.sort { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>NBA 分节领先胜率</h1>
+    <p>某队在某一节结束时领先或落后若干分，最后赢下比赛的历史概率。数据为最近五个完整赛季 2021–26（可加入本赛季），每场比赛分别从双方视角各算一次。</p>
+  </header>
+
+  <div class="seg tabs" id="tab" role="tablist"><button data-v="q">分节统计</button><button data-v="pm">PM 台账</button></div>
+
+  <section class="panel pmv pmctl" aria-label="台账筛选">
+    <label class="ctl"><span>赛季</span><select id="lgS"></select></label>
+    <label class="ctl"><span>球队</span><select id="lgT"></select></label>
+    <div class="ctl"><span>比赛类型</span><div class="seg" id="lgY"><button data-v="all">全部</button><button data-v="reg">常规赛</button><button data-v="po">季后赛</button></div></div>
+    <div class="ctl"><span>显示</span><div class="seg" id="lgF"><button data-v="all">全部比赛</button><button data-v="upset">只看冷门赢</button></div></div>
+    <div class="ctl"><span id="lgPLab">开赛价区间（¢）</span><div class="cond range"><input type="number" id="lgLo" min="0" max="100" step="1" placeholder="不限" aria-label="开赛价下限"><input type="number" id="lgHi" min="0" max="100" step="1" placeholder="不限" aria-label="开赛价上限"></div></div>
+  </section>
+
+  <section class="panel pmv">
+    <h2>概况</h2>
+    <p class="sub" id="lgSub"></p>
+    <div class="stats" id="lgStats"></div>
+  </section>
+
+  <section class="panel pmv" id="lgPendBox">
+    <h2>待开赛</h2>
+    <p class="sub">最近一次运行 update.bat 时记录的盘前价格（买卖中间价）。开赛后下次运行会补上开赛价并结算。</p>
+    <div class="scroll"><table class="games" id="lgPend"></table></div>
+  </section>
+
+  <section class="panel pmv">
+    <h2>比赛台账</h2>
+    <p class="sub" id="lgGlSub"></p>
+    <div class="scroll"><table class="games" id="lgGl"></table></div>
+    <button class="more" id="lgMore" hidden>显示更多</button>
+  </section>
+
+  <section class="panel pmv">
+    <h2>各队：实际胜场 vs 市场预期</h2>
+    <p class="sub">预期胜场 = 每场开赛价相加（市场认为这队应该赢几场）。差值为正 = 市场低估了这队；每张回报 = 每场按开赛价买这队赢、扣 1¢ 成本的平均盈亏。用前两季检验过：前半季被低估的队，后半季再买大约打平，所以偏离多半是波动。点击表头可排序。</p>
+    <div class="scroll"><table class="games" id="lgTeam"></table></div>
+  </section>
+
+  <section class="panel pmv">
+    <h2>价格校准</h2>
+    <p class="sub">按开赛价把热门分档：市场给的价格 vs 实际胜率。两者接近 = 市场定价准确。每张回报已扣 1¢ 成本。</p>
+    <div class="scroll"><table class="games" id="lgCal"></table></div>
+  </section>
+
+  <section class="panel" aria-label="盘中公允价计算器">
+    <h2>盘中公允价计算器</h2>
+    <p class="sub">输入赛前胜率（或让分）和当前分差，估算现在的赢球概率，再和市场价对比。模型假设剩余时间按赛前实力发挥，并计入历史上领先平均会缩水的幅度：第1节领先约回吐 29%，半场 21%，第3节 13%。参数由 2021–26 五季常规赛拟合。</p>
+    <div class="calc">
+      <div class="calc-in">
+        <label class="ctl"><span>赛前胜率（填开赛前的盘口价）</span><div class="unit"><input type="number" id="cP" min="1" max="99" step="0.5"><em>%</em></div></label>
+        <label class="ctl"><span>等价让分（负=让分）</span><div class="unit"><input type="number" id="cS" min="-30" max="30" step="0.5"><em>分</em></div></label>
+        <div class="ctl wide"><span>时间点</span><div class="seg" id="cT">
+          <button data-v="36">第1节结束</button><button data-v="24">半场</button><button data-v="12">第3节结束</button><button data-v="c">自定义</button></div></div>
+        <label class="ctl" id="cMinBox"><span>剩余分钟</span><div class="unit"><input type="number" id="cMin" min="0.5" max="48" step="0.5"><em>分钟</em></div></label>
+        <label class="ctl"><span>当前分差（正=领先）</span><div class="unit"><input type="number" id="cM" min="-60" max="60" step="1"><em>分</em></div></label>
+        <label class="ctl"><span>市场价（买该队赢）</span><div class="unit"><input type="number" id="cPx" min="1" max="99" step="1"><em>¢</em></div></label>
+      </div>
+      <div class="calc-out">
+        <div class="q" id="cQ" style="color:var(--muted);font-size:13px"></div>
+        <div class="fair"><span class="pct" id="cFair"></span><span class="rec" id="cFairC"></span></div>
+        <div class="edge" id="cEdge"></div>
+        <div class="edge" id="cEmp"></div>
+      </div>
+    </div>
+    <h2 style="margin-top:18px;font-size:16px">速查表：该队赛前胜率下，各节末分差对应的公允价（¢）</h2>
+    <div class="scroll"><table class="ptab" id="cTab"></table></div>
+  </section>
+
+  <section class="panel controls" aria-label="筛选条件">
+    <label class="ctl"><span>球队</span><select id="team"></select></label>
+    <div class="ctl"><span>场地</span><div class="seg" id="site">
+      <button data-v="all">全部</button><button data-v="home">主场</button><button data-v="away">客场</button></div></div>
+    <div class="ctl"><span>时间点</span><div class="seg" id="q">
+      <button data-v="0">第1节</button><button data-v="1">半场</button><button data-v="2">第3节</button></div></div>
+    <div class="ctl"><span>分差条件</span><div class="seg" id="mode">
+      <button data-v="lead">领先≥</button><button data-v="trail">落后≥</button><button data-v="range">区间</button></div></div>
+    <div class="ctl"><span id="condLab">分数</span><div class="cond" id="condBox">
+      <input type="number" id="x" value="10" min="0" max="60" aria-label="分数">
+      <input type="number" id="y" value="5" min="-60" max="60" aria-label="区间上限" hidden>
+    </div></div>
+    <label class="ctl"><span>对手</span><select id="vs"></select></label>
+    <div class="ctl"><span>比赛类型</span><div class="seg" id="type">
+      <button data-v="all">全部</button><button data-v="reg">常规赛</button><button data-v="po">季后赛</button></div></div>
+    <div class="ctl" style="grid-column: span 2"><span>赛季</span><div class="checks" id="seasons"></div></div>
+  </section>
+
+  <section class="result">
+    <div class="panel verdict">
+      <div class="q" id="vq"></div>
+      <div class="big"><span class="pct" id="vpct"></span><span class="rec" id="vrec"></span></div>
+      <div class="chips" id="vchips"></div>
+    </div>
+    <div class="panel compare" id="cmp"></div>
+  </section>
+
+  <section class="panel">
+    <h2>每节平均得分</h2>
+    <p class="sub" id="qsSub"></p>
+    <div class="scroll"><table class="games" id="qsTab"></table></div>
+  </section>
+
+  <section class="panel" id="h2hBox">
+    <h2>全部对赛往绩</h2>
+    <p class="sub" id="h2hSub"></p>
+    <div class="h2hsum" id="h2hSum"></div>
+    <div class="scroll"><table class="games" id="h2hGl"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>全景表</h2>
+    <p class="sub" id="hmSub"></p>
+    <div class="scroll"><table id="hm"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>命中的比赛</h2>
+    <p class="sub" id="glSub"></p>
+    <div class="scroll"><table class="games" id="gl"></table></div>
+    <button class="more" id="more" hidden>显示更多</button>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const RAW = __DATA__;
+const META = __META__;
+// RAW 每行: [date, season, stype, home, away, h1,h2,h3,h4, a1,a2,a3,a4, hf, af, ot]
+const TEAMS = ['ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GSW','HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NOP','NYK','OKC','ORL','PHI','PHX','POR','SAC','SAS','TOR','UTA','WAS'];
+const CN = {ATL:'老鹰',BOS:'凯尔特人',BKN:'篮网',CHA:'黄蜂',CHI:'公牛',CLE:'骑士',DAL:'独行侠',DEN:'掘金',DET:'活塞',GSW:'勇士',HOU:'火箭',IND:'步行者',LAC:'快船',LAL:'湖人',MEM:'灰熊',MIA:'热火',MIL:'雄鹿',MIN:'森林狼',NOP:'鹈鹕',NYK:'尼克斯',OKC:'雷霆',ORL:'魔术',PHI:'76人',PHX:'太阳',POR:'开拓者',SAC:'国王',SAS:'马刺',TOR:'猛龙',UTA:'爵士',WAS:'奇才'};
+const QN = ['第1节', '半场', '第3节'];
+const SEASONS = [...new Set(RAW.map(r => r[1]))].sort();
+const sLab = s => `${s}-${String(s + 1).slice(2)}`;
+
+// 展开为队伍视角
+const P = [];
+for (const r of RAW) {
+  const [d, s, t, h, a, h1, h2, h3, h4, a1, a2, a3, a4, hf, af, ot] = r;
+  const hc = [h1, h1 + h2, h1 + h2 + h3], ac = [a1, a1 + a2, a1 + a2 + a3];
+  P.push({ d, s, t, team: h, opp: a, home: true, m: hc.map((v, i) => v - ac[i]), qf: [h1, h2, h3, h4], qa: [a1, a2, a3, a4], win: hf > af, f: hf + '-' + af, ot });
+  P.push({ d, s, t, team: a, opp: h, home: false, m: ac.map((v, i) => v - hc[i]), qf: [a1, a2, a3, a4], qa: [h1, h2, h3, h4], win: af > hf, f: af + '-' + hf, ot });
+}
+
+const st = { team: 'PHI', site: 'home', q: 2, mode: 'lead', x: 10, y: 5, vs: '', type: 'all',
+  seasons: SEASONS.filter(s => s < META.current) };
+try { Object.assign(st, JSON.parse(localStorage.getItem('nbaq5') || '{}')); } catch (e) {}
+st.seasons = st.seasons.filter(s => SEASONS.includes(s));
+
+const $ = id => document.getElementById(id);
+const opts = (sel, list, first) => sel.innerHTML = (first ? `<option value="">${first}</option>` : '') +
+  list.map(t => `<option value="${t}">${t === 'ALL' ? '全联盟' : t + ' ' + CN[t]}</option>`).join('');
+opts($('team'), ['ALL', ...TEAMS]); opts($('vs'), TEAMS, '全部对手');
+$('seasons').innerHTML = SEASONS.map(s => `<label><input type="checkbox" id="s${s}" value="${s}">${sLab(s)}${s === META.current ? ' 本季' : ''}</label>`).join('');
+
+function seg(id, key, num) {
+  $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+    st[key] = num ? Number(b.dataset.v) : b.dataset.v; render(); });
+}
+seg('site', 'site'); seg('q', 'q', true); seg('mode', 'mode'); seg('type', 'type');
+$('team').onchange = e => { st.team = e.target.value; render(); };
+$('vs').onchange = e => { st.vs = e.target.value; render(); };
+$('x').oninput = e => { st.x = Number(e.target.value); render(); };
+$('y').oninput = e => { st.y = Number(e.target.value); render(); };
+$('seasons').onchange = () => { st.seasons = SEASONS.filter(s => $('s' + s).checked); render(); };
+
+const range = () => st.mode === 'lead' ? [st.x, 999] : st.mode === 'trail' ? [-999, -st.x] : [Math.min(st.x, st.y), Math.max(st.x, st.y)];
+const condTxt = () => st.mode === 'lead' ? `领先 ≥${st.x} 分` : st.mode === 'trail' ? `落后 ≥${st.x} 分` : `分差 ${range()[0]} ~ ${range()[1]}`;
+const fmt = p => p === null ? '—' : (p * 100).toFixed(1) + '%';
+const stat = (arr, qi, a, b) => { const s = arr.filter(p => p.m[qi] >= a && p.m[qi] <= b); const w = s.filter(p => p.win).length;
+  return { s, n: s.length, w, l: s.length - w, p: s.length ? w / s.length : null }; };
+const cellBg = p => p === null ? '' : `background: color-mix(in oklab, var(--win) ${Math.round(p * 100)}%, var(--lose)); color: #fff`;
+
+const BUCKETS = [[15, 999, '领先 15+'], [10, 14, '领先 10–14'], [5, 9, '领先 5–9'], [1, 4, '领先 1–4'], [0, 0, '平局'],
+  [-4, -1, '落后 1–4'], [-9, -5, '落后 5–9'], [-14, -10, '落后 10–14'], [-999, -15, '落后 15+']];
+let shown = 30;
+
+function render() {
+  try { localStorage.setItem('nbaq5', JSON.stringify(st)); } catch (e) {}
+  // 同步控件
+  $('team').value = st.team; $('vs').value = st.vs; $('x').value = st.x; $('y').value = st.y;
+  for (const [id, key] of [['site', 'site'], ['q', 'q'], ['mode', 'mode'], ['type', 'type']])
+    for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v == st[key]));
+  SEASONS.forEach(s => $('s' + s).checked = st.seasons.includes(s));
+  $('y').hidden = st.mode !== 'range'; $('condBox').classList.toggle('range', st.mode === 'range');
+  $('condLab').textContent = st.mode === 'range' ? '分差下限 / 上限（正=领先）' : '分数';
+
+  const base = P.filter(p => st.seasons.includes(p.s) &&
+    (st.type === 'all' || (st.type === 'reg' ? p.t === 2 : p.t !== 2)) &&
+    (st.site === 'all' || p.home === (st.site === 'home')) && (!st.vs || p.opp === st.vs));
+  const mine = st.team === 'ALL' ? base : base.filter(p => p.team === st.team);
+  const [a, b] = range(); const r = stat(mine, st.q, a, b), lg = stat(base, st.q, a, b);
+  const who = st.team === 'ALL' ? '全联盟' : `${st.team} ${CN[st.team]}`;
+  const siteTxt = { all: '主客场', home: '主场', away: '客场' }[st.site];
+
+  $('vq').textContent = `${who} · ${siteTxt}${st.vs ? ' vs ' + st.vs : ''} · ${QN[st.q]}结束${condTxt()} → 最终赢球`;
+  $('vpct').textContent = fmt(r.p);
+  $('vpct').style.color = r.p === null ? 'var(--muted)' : r.p >= .5 ? 'var(--win)' : 'var(--lose)';
+  $('vrec').textContent = `${r.w} 胜 ${r.l} 负`;
+  const chips = [];
+  if (r.n === 0) chips.push('<span class="chip warn">没有符合条件的比赛</span>');
+  else if (r.n < 20) chips.push(`<span class="chip warn">样本仅 ${r.n} 场，参考性弱</span>`);
+  else chips.push(`<span class="chip">样本 ${r.n} 场</span>`);
+  if (st.team !== 'ALL' && r.p !== null && lg.p !== null && r.n >= 10) {
+    const diff = (r.p - lg.p) * 100;
+    if (Math.abs(diff) >= 3) chips.push(`<span class="chip ${diff > 0 ? 'up' : 'down'}">比联盟${diff > 0 ? '高' : '低'} ${Math.abs(diff).toFixed(1)} 个百分点</span>`);
+    else chips.push('<span class="chip">与联盟基准接近</span>');
+  }
+  $('vchips').innerHTML = chips.join('');
+
+  const kv = (name, note, p, rec) => `<div class="kv"><div>${name}<small>${note}</small><div class="bar"><i style="width:${p === null ? 0 : p * 100}%"></i></div></div><b>${fmt(p)}<small style="text-align:right">${rec}</small></b></div>`;
+  $('cmp').innerHTML =
+    kv(who, `${QN[st.q]}${condTxt()}`, r.p, `${r.w}-${r.l}`) +
+    (st.team !== 'ALL' ? kv('全联盟基准', '同场地、同条件的所有球队', lg.p, `${lg.w}-${lg.l}`) : '') +
+    `<div class="kv"><div>按胜率换算的公允价<small>预测市场里“该队赢”的合约价格</small></div><b>${r.p === null ? '—' : Math.round(r.p * 100) + '¢'}</b></div>`;
+
+  // 全景表
+  $('hmSub').textContent = `${who} · ${siteTxt} · ${st.seasons.map(sLab).join('、') || '未选赛季'} · 共 ${mine.length} 场（${mine.filter(p => p.win).length} 胜）。格子颜色越绿胜率越高，点击格子可直接查询。`;
+  let h = `<thead><tr><th>节末分差</th>${QN.map(x => `<th>${x}结束</th>`).join('')}</tr></thead><tbody>`;
+  for (const [lo, hi, name] of BUCKETS) {
+    h += `<tr><td class="lab">${name}</td>`;
+    for (let qi = 0; qi < 3; qi++) {
+      const c = stat(mine, qi, lo, hi);
+      const sel = qi === st.q && a === lo && b === hi ? ' sel' : '';
+      h += c.n ? `<td class="cell${sel}" style="${cellBg(c.p)}" data-q="${qi}" data-lo="${lo}" data-hi="${hi}" tabindex="0"><div class="p">${fmt(c.p)}</div><div class="n">${c.w}-${c.l}</div></td>`
+               : `<td class="cell empty">—</td>`;
+    }
+    h += '</tr>';
+  }
+  $('hm').innerHTML = h + '</tbody>';
+
+  // 比赛明细
+  const games = r.s.slice().sort((x, y) => x.d < y.d ? 1 : -1);
+  $('glSub').textContent = `${QN[st.q]}结束${condTxt()}，共 ${games.length} 场，按日期从新到旧。`;
+  $('gl').innerHTML = `<thead><tr><th>日期（美东）</th><th>球队</th><th>对手</th><th>${QN[st.q]}分差</th><th>终场</th><th>结果</th></tr></thead><tbody>` +
+    games.slice(0, shown).map(p => `<tr><td class="num">${p.d}</td><td>${p.team}</td><td>${p.home ? 'vs' : '@'} ${p.opp}</td>
+      <td class="num">${p.m[st.q] > 0 ? '+' : ''}${p.m[st.q]}</td><td class="num">${p.f}${p.ot ? ' (OT' + (p.ot > 1 ? p.ot : '') + ')' : ''}</td>
+      <td><span class="wl ${p.win ? 'w' : 'l'}">${p.win ? 'W' : 'L'}</span></td></tr>`).join('') + '</tbody>';
+  $('more').hidden = games.length <= shown;
+  renderH2H();
+  renderQS(base);
+}
+// ---------- 每节平均得分（跟随场地 / 对手 / 赛季 / 比赛类型筛选，不受分差和时间点影响）----------
+function renderQS(base) {
+  const avgOf = L => { const n = L.length || 1, f = [0, 0, 0, 0], a = [0, 0, 0, 0];
+    for (const p of L) for (let i = 0; i < 4; i++) { f[i] += p.qf[i]; a[i] += p.qa[i]; }
+    return { n: L.length, f: f.map(x => x / n), a: a.map(x => x / n) }; };
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const sg = v => { const s = v.toFixed(1); return s === '-0.0' ? '0.0' : (v > 0 ? '+' : '') + s; }, cls = v => v > 0.05 ? 'pos' : v < -0.05 ? 'neg' : '';
+  const siteTxt = { all: '主客场', home: '主场', away: '客场' }[st.site];
+  const seaTxt = st.seasons.map(sLab).join('、') || '未选赛季';
+  // 不带对手筛选的样本（同赛季、同比赛类型）
+  const pool = P.filter(p => st.seasons.includes(p.s) && (st.type === 'all' || (st.type === 'reg' ? p.t === 2 : p.t !== 2)));
+  const bySite = (L, site) => site === 'all' ? L : L.filter(p => p.home === (site === 'home'));
+  const ranked = (L) => { const T = TEAMS.map(t => ({ t, ...avgOf(L.filter(p => p.team === t)) })).filter(x => x.n);
+    return (t, i) => { const v = x => i < 4 ? x.f[i] - x.a[i] : sum(x.f) - sum(x.a); return T.slice().sort((x, y) => v(y) - v(x)).findIndex(x => x.t === t) + 1; }; };
+  if (st.team === 'ALL') {
+    const teams = TEAMS.map(t => ({ t, ...avgOf(base.filter(p => p.team === t)) })).filter(x => x.n);
+    $('qsSub').textContent = `全联盟 · ${siteTxt}${st.vs ? ' vs ' + st.vs : ''} · ${seaTxt}。选一支球队可看它每节的得分、失分、净胜和联盟排名；再选对手可并排对比。`;
+    $('qsTab').innerHTML = '<thead><tr><th>球队</th><th>场数</th><th>第1节净胜</th><th>第2节</th><th>第3节</th><th>第4节</th><th>全场</th></tr></thead><tbody>' +
+      teams.sort((x, y) => (sum(y.f) - sum(y.a)) - (sum(x.f) - sum(x.a)))
+        .map(x => { const d = x.f.map((v, i) => v - x.a[i]), tot = sum(d);
+          return `<tr><td>${x.t} ${CN[x.t]}</td><td class="num">${x.n}</td>${d.map(v => `<td class="num ${cls(v)}">${sg(v)}</td>`).join('')}<td class="num ${cls(tot)}"><b>${sg(tot)}</b></td></tr>`; }).join('') + '</tbody>';
+    return;
+  }
+  const lgAvg = avgOf(pool);
+  const mineL = bySite(pool, st.site), me = avgOf(mineL.filter(p => p.team === st.team)), rkMe = ranked(mineL);
+  const qn = i => i < 4 ? `第${i + 1}节` : '全场';
+  const val = (o, i) => i < 4 ? [o.f[i], o.a[i]] : [sum(o.f), sum(o.a)];
+  if (!st.vs) {
+    $('qsSub').textContent = `${st.team} ${CN[st.team]} · ${siteTxt} · ${seaTxt} · ${me.n} 场。排名 = 该节净胜在 30 队中的名次（同样筛选条件）。在“对手”里选一队，可并排看对手的每节数据。`;
+    $('qsTab').innerHTML = '<thead><tr><th>节</th><th>场均得分</th><th>场均失分</th><th>净胜</th><th>净胜排名</th><th>联盟平均得分</th></tr></thead><tbody>' +
+      (me.n ? [0, 1, 2, 3, 4].map(i => { const [f, a] = val(me, i), lg = val(lgAvg, i)[0];
+        return `<tr><td>${qn(i)}</td><td class="num">${f.toFixed(1)}</td><td class="num">${a.toFixed(1)}</td><td class="num ${cls(f - a)}"><b>${sg(f - a)}</b></td><td class="num">${rkMe(st.team, i)} / 30</td><td class="num">${lg.toFixed(1)}</td></tr>`; }).join('')
+        : '<tr><td colspan="6">没有符合条件的比赛</td></tr>') + '</tbody>';
+    return;
+  }
+  // 选了对手：本队（所选场地）vs 对手（相反场地）各自的整体数据 + 两队交手时的数据
+  const oppSite = st.site === 'home' ? 'away' : st.site === 'away' ? 'home' : 'all';
+  const oppL = bySite(pool, oppSite), op = avgOf(oppL.filter(p => p.team === st.vs)), rkOp = ranked(oppL);
+  const hh = avgOf(base.filter(p => p.team === st.team));
+  const sTxt = { all: '主客场', home: '主场', away: '客场' };
+  $('qsSub').textContent = `${seaTxt} · 左：${st.team} ${sTxt[st.site]}全部比赛（${me.n} 场）；中：${st.vs} ${sTxt[oppSite]}全部比赛（${op.n} 场）；右：两队交手时 ${st.team} 视角（${hh.n} 场）。“预期”= (${st.team} 该节净胜 − ${st.vs} 该节净胜) ÷ 2，粗略估计这一节谁占优。`;
+  const cell = (o, i, rk, t) => { if (!o.n) return '<td class="num">—</td><td class="num">—</td><td class="num">—</td>'; const [f, a] = val(o, i);
+    return `<td class="num">${f.toFixed(1)} / ${a.toFixed(1)}</td><td class="num ${cls(f - a)}"><b>${sg(f - a)}</b></td><td class="num">${rk(t, i)}</td>`; };
+  $('qsTab').innerHTML = `<thead><tr><th>节</th><th>${st.team} 得/失</th><th>净胜</th><th>排名</th><th>${st.vs} 得/失</th><th>净胜</th><th>排名</th><th>预期 ${st.team}</th><th>交手时 ${st.team} 净胜</th></tr></thead><tbody>` +
+    [0, 1, 2, 3, 4].map(i => { const ex = me.n && op.n ? ((val(me, i)[0] - val(me, i)[1]) - (val(op, i)[0] - val(op, i)[1])) / 2 : null;
+      const h = hh.n ? val(hh, i)[0] - val(hh, i)[1] : null;
+      return `<tr><td>${qn(i)}</td>${cell(me, i, rkMe, st.team)}${cell(op, i, rkOp, st.vs)}<td class="num ${ex === null ? '' : cls(ex)}"><b>${ex === null ? '—' : sg(ex)}</b></td><td class="num ${h === null ? '' : cls(h)}">${h === null ? '—' : sg(h)}</td></tr>`; }).join('') + '</tbody>';
+}
+
+// ---------- 全部对赛往绩（不受分差/时间点/场地/赛季筛选影响）----------
+function renderH2H() {
+  if (st.team === 'ALL' || !st.vs) {
+    $('h2hSub').textContent = '选择一支球队并在“对手”里选定对手，这里会列出两队在数据库里的全部交手（所有赛季，含季后赛），不受分差、时间点、场地和赛季筛选影响。';
+    $('h2hSum').innerHTML = ''; $('h2hGl').innerHTML = ''; return;
+  }
+  const G = P.filter(p => p.team === st.team && p.opp === st.vs).sort((x, y) => x.d < y.d ? 1 : -1);
+  const rec = L => { const w = L.filter(p => p.win).length; return { w, l: L.length - w, n: L.length }; };
+  const box = (lab, L, note) => { const r = rec(L); return `<div><small>${lab}</small><b style="color:${!r.n ? 'var(--muted)' : r.w >= r.l ? 'var(--win)' : 'var(--lose)'}">${r.w}-${r.l}</b><small>${r.n ? Math.round(r.w / r.n * 100) + '%' : '—'}${note ? ' · ' + note : ''}</small></div>`; };
+  const avg = (L, f) => L.length ? (L.reduce((a, p) => a + f(p), 0) / L.length) : 0;
+  const sg = v => (v > 0 ? '+' : '') + v.toFixed(1);
+  const reg = G.filter(p => p.t === 2), po = G.filter(p => p.t !== 2);
+  const net = L => { const v = avg(L, p => { const [a, b] = p.f.split('-').map(Number); return a - b; }); return L.length ? '场均 ' + sg(v) : ''; };
+  const recent = G.slice(0, 10);
+  // PM 开赛价（2024-25 起有台账），换成 st.team 视角
+  const pmOf = p => { const r = window.LGMAP && window.LGMAP.get(p.d + (p.home ? p.team + p.opp : p.opp + p.team)); if (!r) return null;
+    const f = x => x === null || x === undefined ? null : p.home ? x : 1 - x; return { op: f(r.op), cl: f(r.cl) }; };
+  const GP = G.map(p => ({ p, q: pmOf(p) })).filter(x => x.q && x.q.cl !== null);
+  let pmBox = '';
+  if (GP.length) {
+    const w = GP.filter(x => x.p.win).length, e = GP.reduce((a, x) => a + x.q.cl, 0), roi = GP.reduce((a, x) => a + (x.p.win ? 1 : 0) - x.q.cl - .01, 0) / GP.length;
+    const ups = GP.filter(x => (x.q.cl >= .5) !== x.p.win).length;
+    pmBox = `<div><small>PM 开赛价平均（${GP.length} 场有盘口）</small><b>${Math.round(e / GP.length * 100)}¢</b><small>${st.team} 实际 ${w}-${GP.length - w}，预期 ${e.toFixed(1)} 胜</small></div>` +
+      `<div><small>按开赛价每场买 ${st.team}</small><b style="color:${roi >= 0 ? 'var(--win)' : 'var(--lose)'}">${roi >= 0 ? '+' : ''}${(roi * 100).toFixed(1)}¢</b><small>每张（扣 1¢）· 冷门赢 ${ups} 场</small></div>`;
+  }
+  const seasons = [...new Set(G.map(p => p.s))].sort((a, b) => b - a);
+  $('h2hSub').textContent = `${st.team} ${CN[st.team]} 对 ${st.vs} ${CN[st.vs]} · 数据库内全部交手 ${G.length} 场（${sLab(SEASONS[0])} 至今），按日期从新到旧。分差 = ${st.team} 视角，正数为领先。PM 价格 = ${st.team} 赢的价格（2024-25 起有数据）。`;
+  $('h2hSum').innerHTML = box('总战绩', G, net(G)) + box('常规赛', reg, net(reg)) + box('季后赛 / 附加赛', po, net(po)) +
+    box(`${st.team} 主场`, G.filter(p => p.home), net(G.filter(p => p.home))) + box(`${st.team} 客场`, G.filter(p => !p.home), net(G.filter(p => !p.home))) +
+    box('最近 10 场', recent, net(recent)) +
+    seasons.map(s => box(sLab(s), G.filter(p => p.s === s))).join('') +
+    `<div><small>各节末平均分差</small><b style="font-size:15px">${QN.map((q, i) => sg(avg(G, p => p.m[i]))).join(' / ')}</b><small>第1节 / 半场 / 第3节</small></div>` + pmBox;
+  const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+  const tl = t => t === 2 ? '常规赛' : t === 3 ? '季后赛' : '附加赛';
+  const c0 = x => x === null || x === undefined ? '—' : Math.round(x * 100);
+  $('h2hGl').innerHTML = `<thead><tr><th>日期（美东）</th><th>类型</th><th>场地</th><th>第1节</th><th>半场</th><th>第3节</th><th>终场</th><th>结果</th><th>PM 开盘 → 开赛价</th><th></th></tr></thead><tbody>` +
+    G.map(p => { const q = pmOf(p);
+      return `<tr><td class="num">${p.d}</td><td>${tl(p.t)}</td><td>${p.home ? '主 vs' : '客 @'} ${p.opp}</td>` +
+      p.m.map(v => `<td class="num ${cls(v)}">${v > 0 ? '+' : ''}${v}</td>`).join('') +
+      `<td class="num">${p.f}${p.ot ? ' (OT' + (p.ot > 1 ? p.ot : '') + ')' : ''}</td><td><span class="wl ${p.win ? 'w' : 'l'}">${p.win ? 'W' : 'L'}</span></td>` +
+      (q ? `<td class="path">${c0(q.op)} → <b>${c0(q.cl)}¢</b></td><td>${(q.cl >= .5) !== p.win ? '<span class="upset">冷门 ⚡</span>' : ''}</td>` : '<td class="path">—</td><td></td>') + '</tr>'; }).join('') + '</tbody>';
+}
+$('hm').addEventListener('click', e => { const c = e.target.closest('td.cell[data-q]'); if (!c) return;
+  const lo = +c.dataset.lo, hi = +c.dataset.hi; st.q = +c.dataset.q;
+  if (hi === 999) { st.mode = 'lead'; st.x = lo; } else if (lo === -999) { st.mode = 'trail'; st.x = -hi; } else { st.mode = 'range'; st.x = lo; st.y = hi; }
+  shown = 30; render(); });
+$('hm').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.click(); });
+$('more').onclick = () => { shown += 50; render(); };
+// ---------- 盘中公允价计算器 ----------
+const Phi = z => { const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2),
+  p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - p : p; };
+const invPhi = p => { let lo = -8, hi = 8; for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; Phi(m) < p ? lo = m : hi = m; } return (lo + hi) / 2; };
+// 参数全部由 2021-26 五季常规赛拟合（f = 剩余时间占全场比例）：
+//  剩余分差标准差：Q1后 12.5 / 半场 10.7 / Q3后 7.9
+//  领先回吐系数 k：Q1后 -0.29 / 半场 -0.21 / Q3后 -0.13（领先平均会缩水这么多）
+const SD = 12.47;
+const lerp = (f, pts) => { for (let i = 1; i < pts.length; i++) if (f <= pts[i][0]) {
+  const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; return y0 + (f - x0) / (x1 - x0) * (y1 - y0); } return pts.at(-1)[1]; };
+const sdRem = f => f <= 0 ? 0 : f < .25 ? 7.87 * Math.sqrt(f / .25) : lerp(f, [[.25, 7.87], [.5, 10.73], [.75, 12.47], [1, 12.47]]);
+const kOf = f => lerp(f, [[0, 0], [.25, -.131], [.5, -.211], [.75, -.286], [1, -.286]]);
+const fairP = (pre, minLeft, margin) => { const f = minLeft / 48, exp = SD * invPhi(pre) * f; // 剩余时间按赛前实力的预期净胜
+  return f <= 0 ? (margin > 0 ? 1 : margin < 0 ? 0 : .5) : Phi((margin * (1 + kOf(f)) + exp) / sdRem(f)); };
+
+// 实证对照：用当季净胜分估算每场的赛前预期分差
+const STR = {}; for (const r of RAW) if (r[2] === 2) for (const [t, d] of [[r[3], r[13] - r[14]], [r[4], r[14] - r[13]]]) {
+  const k = r[1] + t; (STR[k] ??= { d: 0, n: 0 }); STR[k].d += d; STR[k].n++; }
+// 留一法：去掉本场再算净胜分，避免“后见之明”
+const strOf = (s, t, ex) => { const x = STR[s + t]; return x && x.n > 1 ? (x.d - ex) / (x.n - 1) : 0; };
+for (const p of P) { const [a, b] = p.f.split('-').map(Number), d = a - b;
+  p.e = strOf(p.s, p.team, d) - strOf(p.s, p.opp, -d) + (p.home ? 1.99 : -1.99); }
+
+const cs = { p: 77, t: '36', min: 36, m: -5, px: 55 };
+try { Object.assign(cs, JSON.parse(localStorage.getItem('nbaqc') || '{}')); } catch (e) {}
+const spreadOf = p => -Math.round(SD * invPhi(p / 100) * 2) / 2;
+
+function calc() {
+  try { localStorage.setItem('nbaqc', JSON.stringify(cs)); } catch (e) {}
+  const minLeft = cs.t === 'c' ? cs.min : Number(cs.t);
+  $('cP').value = cs.p; $('cM').value = cs.m; $('cPx').value = cs.px; $('cMin').value = minLeft;
+  if (document.activeElement !== $('cS')) $('cS').value = spreadOf(cs.p);
+  for (const b of $('cT').children) b.setAttribute('aria-pressed', String(b.dataset.v === cs.t));
+  $('cMinBox').hidden = cs.t !== 'c';
+  const pre = Math.min(.99, Math.max(.01, cs.p / 100));
+  const fp = fairP(pre, minLeft, cs.m), fc = Math.round(fp * 100);
+  const tName = { 36: '第1节结束', 24: '半场', 12: '第3节结束' }[cs.t] || `剩 ${minLeft} 分钟`;
+  $('cQ').textContent = `赛前 ${cs.p}%（约让 ${spreadOf(cs.p) > 0 ? '+' : ''}${spreadOf(cs.p)}）· ${tName} · ${cs.m > 0 ? '领先 ' + cs.m : cs.m < 0 ? '落后 ' + -cs.m : '平局'} → 现在的赢球概率`;
+  $('cFair').textContent = (fp * 100).toFixed(1) + '%';
+  $('cFair').style.color = fp >= .5 ? 'var(--win)' : 'var(--lose)';
+  $('cFairC').textContent = `公允价 ${fc}¢`;
+
+  const edge = fc - cs.px;
+  const cls = edge >= 4 ? 'good' : edge <= -4 ? 'bad' : '';
+  const msg = edge >= 4 ? `买这队赢：每张约 +${edge}¢ 的优势（还要扣掉 1–3¢ 买卖价差）。先确认落后不是因为核心球员伤退或犯规麻烦。`
+    : edge <= -4 ? `这队偏贵 ${-edge}¢。反过来买对手赢（${100 - cs.px}¢，公允价 ${100 - fc}¢），每张约 +${-edge}¢ 优势。`
+    : '差距在 4¢ 以内，扣掉价差后基本没有优势，不建议出手。';
+  $('cEdge').className = 'edge ' + cls;
+  $('cEdge').innerHTML = `<div>市场 ${cs.px}¢ vs 公允价 ${fc}¢：<b>${edge > 0 ? '+' : ''}${edge}¢</b></div><p>${msg}</p>`;
+
+  // 实证对照（只有节末时间点可查）
+  const qi = { 36: 0, 24: 1, 12: 2 }[cs.t];
+  if (qi === undefined) { $('cEmp').innerHTML = '<div>实证对照</div><p>自定义时间没有历史数据可比，只用模型。</p>'; }
+  else {
+    const E = -spreadOf(cs.p);
+    const pool = P.filter(p => p.t === 2 && p.s < META.current && Math.abs(p.e - E) <= 2.5 && Math.abs(p.m[qi] - cs.m) <= 2);
+    const w = pool.filter(p => p.win).length;
+    const ml = Number(cs.t), modelAvg = pool.length ? pool.reduce((a, p) => a + Phi((p.m[qi] * (1 + kOf(ml / 48)) + p.e * ml / 48) / sdRem(ml / 48)), 0) / pool.length : null;
+    const act = pool.length ? w / pool.length : null;
+    const note = !pool.length ? '没有足够相近的历史比赛。' : pool.length < 40 ? '样本偏少，以模型为准。'
+      : Math.abs(act - modelAvg) <= .05 ? '实际与模型对同一批比赛的预测接近，模型可信。' : '实际与模型偏差超过 5 个百分点，这个区间谨慎使用。';
+    $('cEmp').innerHTML = `<div>实证对照：<b>${act === null ? '—' : (act * 100).toFixed(1) + '%'}</b> <span style="color:var(--muted);font-size:12px">${w}-${pool.length - w}，n=${pool.length}${modelAvg === null ? '' : `；模型对同批比赛预测 ${(modelAvg * 100).toFixed(1)}%`}</span></div>
+      <p>过去五季常规赛里，赛前预期净胜 ${E - 2.5 > 0 ? '+' : ''}${(E - 2.5).toFixed(1)}~${E + 2.5 > 0 ? '+' : ''}${(E + 2.5).toFixed(1)} 分（按当季净胜分估算）、${tName}分差在 ${cs.m - 2}~${cs.m + 2} 之间的球队，最终胜率。${note}</p>`;
+  }
+
+  // 速查表
+  const MS = [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15];
+  const near = MS.reduce((a, b) => Math.abs(b - cs.m) < Math.abs(a - cs.m) ? b : a);
+  $('cTab').innerHTML = `<thead><tr><th>节末分差</th>${MS.map(m => `<th>${m > 0 ? '+' + m : m}</th>`).join('')}</tr></thead><tbody>` +
+    [[36, '第1节'], [24, '半场'], [12, '第3节']].map(([ml, nm]) => `<tr><td class="lab">${nm}</td>` + MS.map(m => {
+      const v = fairP(pre, ml, m); return `<td class="cell${String(ml) === cs.t && m === near ? ' now' : ''}" style="${cellBg(v)}"><div class="p">${Math.round(v * 100)}</div></td>`; }).join('') + '</tr>').join('') + '</tbody>';
+}
+$('cP').oninput = e => { cs.p = Number(e.target.value) || 50; calc(); };
+$('cS').oninput = e => { const s = Number(e.target.value); if (!isNaN(s)) { cs.p = Math.round(Phi(-s / SD) * 100); calc(); } };
+$('cT').onclick = e => { const b = e.target.closest('button'); if (!b) return; cs.t = b.dataset.v; calc(); };
+$('cMin').oninput = e => { cs.min = Math.min(48, Math.max(0, Number(e.target.value) || 0)); calc(); };
+$('cM').oninput = e => { cs.m = Number(e.target.value) || 0; calc(); };
+$('cPx').oninput = e => { cs.px = Number(e.target.value) || 50; calc(); };
+calc();
+
+// ---------- PM 台账 ----------
+const LEDGER = __LEDGER__.map(r => { const [d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol] = r;
+  return { d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol }; });
+const lg = { s: 'cur', team: '', type: 'all', f: 'all', lo: '', hi: '', shown: 50, sortK: 'diff', sortD: -1 };
+try { Object.assign(lg, JSON.parse(localStorage.getItem('nbalg') || '{}')); lg.shown = 50; } catch (e) {}
+let tab = 'q'; try { tab = localStorage.getItem('nbatab') || 'q'; } catch (e) {}
+window.LGMAP = new Map(LEDGER.filter(r => r.settled && r.cl !== null).map(r => [r.d + r.home + r.away, r]));
+const lgSeasons = [...new Set(LEDGER.map(r => r.s))].sort((a, b) => b - a);
+$('lgS').innerHTML = '<option value="cur">本季（' + sLab(lgSeasons[0] ?? META.current) + '）</option><option value="all">全部赛季</option>' + lgSeasons.map(s => `<option value="${s}">${sLab(s)}</option>`).join('');
+$('lgT').innerHTML = '<option value="">全部球队</option>' + TEAMS.map(t => `<option value="${t}">${t} ${CN[t]}</option>`).join('');
+$('lgS').onchange = e => { lg.s = e.target.value; lg.shown = 50; renderLG(); };
+$('lgT').onchange = e => { lg.team = e.target.value; lg.shown = 50; renderLG(); };
+for (const [id, k] of [['lgY', 'type'], ['lgF', 'f']]) $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; lg[k] = b.dataset.v; lg.shown = 50; renderLG(); });
+$('lgLo').oninput = e => { lg.lo = e.target.value; lg.shown = 50; renderLG(); };
+$('lgHi').oninput = e => { lg.hi = e.target.value; lg.shown = 50; renderLG(); };
+$('lgMore').onclick = () => { lg.shown += 100; renderLG(); };
+$('lgTeam').addEventListener('click', e => { const th = e.target.closest('th[data-k]'); if (!th) return;
+  if (lg.sortK === th.dataset.k) lg.sortD *= -1; else { lg.sortK = th.dataset.k; lg.sortD = -1; } renderLG(); });
+$('tab').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.v; showTab(); });
+const fmtLocal = s => new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+function showTab() {
+  try { localStorage.setItem('nbatab', tab); } catch (e) {}
+  for (const b of $('tab').children) b.setAttribute('aria-pressed', String(b.dataset.v === tab));
+  for (const el of document.querySelectorAll('.wrap > section')) el.hidden = el.classList.contains('pmv') ? tab !== 'pm' : tab === 'pm';
+  $('foot').textContent = tab === 'pm'
+    ? `数据来源：Polymarket 胜负线价格 + ESPN 终场比分 · 台账 ${LEDGER.length} 场 · 最后更新 ${META.ledgerAt ? fmtLocal(META.ledgerAt) : '—'} · 运行 update.bat 更新`
+    : `数据来源：ESPN 分节比分 · 共 ${RAW.length} 场 · 更新到 ${META.updated}（美东）· 季后赛含附加赛`;
+  if (tab === 'pm') renderLG();
+}
+const c1 = x => x === null || x === undefined ? '—' : Math.round(x * 100);
+const sgc = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '¢';
+function renderLG() {
+  try { localStorage.setItem('nbalg', JSON.stringify({ s: lg.s, team: lg.team, type: lg.type, f: lg.f, lo: lg.lo, hi: lg.hi, sortK: lg.sortK, sortD: lg.sortD })); } catch (e) {}
+  $('lgS').value = lg.s; $('lgT').value = lg.team;
+  if (document.activeElement !== $('lgLo')) $('lgLo').value = lg.lo; if (document.activeElement !== $('lgHi')) $('lgHi').value = lg.hi;
+  $('lgPLab').textContent = lg.team ? `${lg.team} 开赛价 ≥ / ≤（¢）` : '热门开赛价 ≥ / ≤（¢）';
+  const lo = lg.lo === '' ? -1 : Number(lg.lo) / 100, hi = lg.hi === '' ? 2 : Number(lg.hi) / 100;
+  const priceOf = r => lg.team ? (r.home === lg.team ? r.cl : 1 - r.cl) : Math.max(r.cl, 1 - r.cl);
+  const priceOk = r => { const p = Math.round(priceOf(r) * 1000) / 1000; return p >= Math.min(lo, hi) && p <= Math.max(lo, hi); };
+  const rangeTxt = lg.lo === '' && lg.hi === '' ? '' : ` · ${lg.team ? lg.team : '热门'}开赛价 ${lg.lo === '' ? '' : '≥' + lg.lo + '¢'}${lg.lo !== '' && lg.hi !== '' ? ' 且 ' : ''}${lg.hi === '' ? '' : '≤' + lg.hi + '¢'}`;
+  for (const [id, k] of [['lgY', 'type'], ['lgF', 'f']]) for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v === lg[k]));
+  const sel = lg.s === 'cur' ? lgSeasons[0] : lg.s === 'all' ? null : Number(lg.s);
+  const typeOk = r => lg.type === 'all' || (lg.type === 'reg' ? r.t === 2 : r.t !== 2);
+  const base = LEDGER.filter(r => r.settled && r.cl !== null && (sel === null || r.s === sel) && typeOk(r) && (!lg.team || r.home === lg.team || r.away === lg.team) && priceOk(r));
+  // 视角：选了球队 = 该队；否则 = 开赛价热门
+  const view = r => { const me = lg.team ? (r.home === lg.team ? 1 : 0) : (r.cl >= .5 ? 1 : 0);
+    const f = p => p === null || p === undefined ? null : me ? p : 1 - p;
+    return { team: me ? r.home : r.away, opp: me ? r.away : r.home, home: !!me, op: f(r.op), h24: f(r.h24), h1: f(r.h1), cl: f(r.cl), won: me ? r.hw : 1 - r.hw,
+      pf: me ? r.hf : r.af, pa: me ? r.af : r.hf, upset: (r.cl >= .5) !== (r.hw === 1) }; };
+  const V = base.map(r => ({ r, v: view(r) }));
+  const list = (lg.f === 'upset' ? V.filter(x => x.v.upset) : V).slice().reverse();
+  const scopeTxt = `${sel === null ? '全部赛季' : sLab(sel)} · ${{ all: '全部比赛', reg: '常规赛', po: '季后赛/附加赛' }[lg.type]}${lg.team ? ' · ' + lg.team + ' ' + CN[lg.team] : ''}${rangeTxt}`;
+
+  // 概况
+  const n = V.length, favW = V.filter(x => !x.v.upset).length, ups = n - favW;
+  const brier = n ? base.reduce((a, r) => a + (r.cl - r.hw) ** 2, 0) / n : null;
+  const mv = base.filter(r => r.h1 !== null).map(r => Math.abs(r.cl - r.h1));
+  const stats = [[n, '已结算比赛'], [n ? Math.round(favW / n * 100) + '%' : '—', '开赛价热门最终赢'], [ups, '冷门赢 ⚡'], [brier === null ? '—' : brier.toFixed(3), 'Brier（越低越准，0.25 = 瞎猜）'],
+    [mv.length ? (mv.reduce((a, b) => a + b, 0) / mv.length * 100).toFixed(1) + '¢' : '—', '开赛前最后 1 小时平均移动']];
+  if (lg.team && n) { const w = V.filter(x => x.v.won).length, e = V.reduce((a, x) => a + x.v.cl, 0), roi = V.reduce((a, x) => a + x.v.won - x.v.cl - .01, 0) / n;
+    stats.push([`${w}-${n - w}`, `${lg.team} 战绩`], [(w - e >= 0 ? '+' : '') + (w - e).toFixed(1), `实际 − 预期胜场（预期 ${e.toFixed(1)}）`], [sgc(roi), '每场按开赛价买这队，每张回报']); }
+  $('lgSub').textContent = scopeTxt;
+  $('lgStats').innerHTML = stats.map(([v, l]) => `<div><b>${v}</b><small>${l}</small></div>`).join('');
+
+  // 待开赛
+  const pend = LEDGER.filter(r => !r.settled && (!lg.team || r.home === lg.team || r.away === lg.team)).sort((a, b) => a.start < b.start ? -1 : 1);
+  $('lgPendBox').hidden = !pend.length;
+  $('lgPend').innerHTML = '<thead><tr><th>开赛（本地时间）</th><th>对阵</th><th>主队价格</th><th>客队价格</th><th>记录时间</th></tr></thead><tbody>' +
+    pend.map(r => { const p = r.snap ?? r.cl; if (p === null || p === undefined) return ''; const fh = p >= .5;
+      return `<tr><td class="num">${r.start ? fmtLocal(r.start) : r.d}</td><td>${r.away} @ ${r.home}</td>
+        <td class="num">${fh ? '<b>' : ''}${r.home} ${c1(p)}¢${fh ? '</b>' : ''}</td><td class="num">${!fh ? '<b>' : ''}${r.away} ${c1(1 - p)}¢${!fh ? '</b>' : ''}</td>
+        <td class="num">${r.snap === null ? '开赛价（待结算）' : r.snapT ? fmtLocal(r.snapT) : '—'}</td></tr>`; }).join('') + '</tbody>';
+
+  // 比赛台账
+  $('lgGlSub').textContent = `${scopeTxt} · ${list.length} 场，从新到旧。价格为${lg.team ? ' ' + lg.team + ' ' : '开赛价热门'}赢的价格：开盘（上线 2 小时后）→ 开赛前 24h → 1h → 开赛价；“移动”= 开赛价 − 开盘，单位 ¢。`;
+  $('lgGl').innerHTML = `<thead><tr><th>日期（美东）</th><th>${lg.team ? '本队' : '热门'}</th><th>对手</th><th>开盘 → 24h → 1h → 开赛价</th><th>移动</th><th>比分</th><th>结果</th><th></th></tr></thead><tbody>` +
+    list.slice(0, lg.shown).map(({ r, v }) => { const m = v.op === null ? null : v.cl - v.op;
+      return `<tr><td class="num">${r.d}${r.t !== 2 ? ' <small>季后</small>' : ''}</td><td>${v.team}</td><td>${v.home ? 'vs' : '@'} ${v.opp}</td>
+        <td class="path">${c1(v.op)} → ${c1(v.h24)} → ${c1(v.h1)} → <b>${c1(v.cl)}¢</b></td>
+        <td class="num ${m === null ? '' : m >= .03 ? 'up9' : m <= -.03 ? 'dn9' : ''}">${m === null ? '—' : (m > 0 ? '+' : '') + Math.round(m * 100)}</td>
+        <td class="num">${v.pf}-${v.pa}</td><td><span class="wl ${v.won ? 'w' : 'l'}">${v.won ? 'W' : 'L'}</span></td><td>${v.upset ? '<span class="upset">冷门 ⚡</span>' : ''}</td></tr>`; }).join('') + '</tbody>';
+  $('lgMore').hidden = list.length <= lg.shown;
+
+  // 各队
+  const TB = LEDGER.filter(r => r.settled && r.cl !== null && (sel === null || r.s === sel) && typeOk(r));
+  const T = {};
+  for (const r of TB) for (const [t, p, w] of [[r.home, r.cl, r.hw], [r.away, 1 - r.cl, 1 - r.hw]]) { const o = (T[t] ??= { t, n: 0, w: 0, e: 0, roi: 0 }); o.n++; o.w += w; o.e += p; o.roi += w - p - .01; }
+  const TT = Object.values(T).map(o => ({ ...o, diff: o.w - o.e, roi: o.roi / o.n, pct: o.w / o.n, ep: o.e / o.n }));
+  TT.sort((a, b) => (a[lg.sortK] - b[lg.sortK]) * lg.sortD);
+  const hd = (k, l) => `<th class="sort" data-k="${k}">${l}${lg.sortK === k ? (lg.sortD < 0 ? ' ↓' : ' ↑') : ''}</th>`;
+  $('lgTeam').innerHTML = `<thead><tr><th>球队</th>${hd('n', '场数')}${hd('pct', '战绩')}${hd('ep', '平均开赛价')}${hd('e', '预期胜场')}${hd('diff', '实际 − 预期')}${hd('roi', '每张回报')}</tr></thead><tbody>` +
+    TT.map(o => `<tr${o.t === lg.team ? ' style="background:var(--mid)"' : ''}><td>${o.t} ${CN[o.t]}</td><td class="num">${o.n}</td><td class="num">${o.w}-${o.n - o.w}</td><td class="num">${Math.round(o.ep * 100)}¢</td><td class="num">${o.e.toFixed(1)}</td>
+      <td class="num ${o.diff > 0.05 ? 'pos' : o.diff < -0.05 ? 'neg' : ''}"><b>${(o.diff >= 0 ? '+' : '') + o.diff.toFixed(1)}</b></td><td class="num ${o.roi > 0 ? 'pos' : 'neg'}">${sgc(o.roi)}</td></tr>`).join('') + '</tbody>';
+
+  // 校准
+  const bins = [[.5, .55], [.55, .6], [.6, .65], [.65, .7], [.7, .75], [.75, .8], [.8, .85], [.85, .9], [.9, .95], [.95, 1.01]];
+  const F = base.map(r => r.cl >= .5 ? { p: r.cl, w: r.hw } : { p: 1 - r.cl, w: 1 - r.hw });
+  $('lgCal').innerHTML = '<thead><tr><th>热门开赛价</th><th>场数</th><th>平均价格</th><th>实际胜率</th><th>差</th><th>买热门每张</th><th>买冷门每张</th></tr></thead><tbody>' +
+    bins.map(([lo, hi]) => { const L = F.filter(x => x.p >= lo && x.p < hi); if (!L.length) return '';
+      const ap = L.reduce((a, x) => a + x.p, 0) / L.length, aw = L.reduce((a, x) => a + x.w, 0) / L.length, k = L.length;
+      return `<tr><td class="num">${Math.round(lo * 100)}–${Math.min(100, Math.round(hi * 100))}¢</td><td class="num">${k}${k < 30 ? ' <small>样本少</small>' : ''}</td><td class="num">${(ap * 100).toFixed(1)}%</td><td class="num">${(aw * 100).toFixed(1)}%</td>
+        <td class="num ${aw - ap > 0 ? 'pos' : 'neg'}">${((aw - ap) * 100 >= 0 ? '+' : '') + ((aw - ap) * 100).toFixed(1)}</td><td class="num">${sgc(aw - ap - .01)}</td><td class="num">${sgc(ap - aw - .01)}</td></tr>`; }).join('') + '</tbody>';
+}
+
+showTab();
+render();
+</script>

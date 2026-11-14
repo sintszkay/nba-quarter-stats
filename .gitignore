@@ -1,0 +1,6 @@
+# 数据库：nba.db 由 GitHub Actions 存在 data 分支；bt.db 为本地回测大表
+*.db
+*.db-journal
+index.html
+site/
+node_modules/
