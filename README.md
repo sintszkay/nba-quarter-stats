@@ -6,6 +6,9 @@
 - **盘中公允价计算器**：输入赛前胜率和当前分差，估算公允价
 - **PM 台账**：Polymarket 胜负线每场的开盘 / 24h / 1h / 开赛价、结果与结算，含各队实际 vs 市场预期、价格校准
 
+## 交易日志
+每日分析与操作复盘：[journal/](journal/README.md)
+
 ## 自动更新
 GitHub Actions（`.github/workflows/update.yml`）每天跑 4 次：抓 ESPN 比分 → 记录 Polymarket 盘前快照 → 结算 → 重新生成网页并发布到 GitHub Pages。
 数据库 `nba.db` 存在 `data` 分支（每次覆盖，只保留最新一份）。也可在 Actions 页面手动点 “Run workflow”。
