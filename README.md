@@ -7,7 +7,7 @@
 - **PM 台账**：Polymarket 胜负线每场的开盘 / 24h / 1h / 开赛价、结果与结算，含各队实际 vs 市场预期、价格校准
 
 ## 交易日志
-每日分析与操作复盘：[journal/](journal/README.md)
+每日分析与操作复盘：[网页版](https://sintszkay.github.io/nba-quarter-stats/journal/) · [Markdown 原稿](journal/README.md)
 
 ## 自动更新
 GitHub Actions（`.github/workflows/update.yml`）每天跑 4 次：抓 ESPN 比分 → 记录 Polymarket 盘前快照 → 结算 → 重新生成网页并发布到 GitHub Pages。

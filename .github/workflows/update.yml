@@ -42,7 +42,8 @@ jobs:
           node --dns-result-order=ipv4first pm.js || echo "pm.js 失败，继续"
           node --dns-result-order=ipv4first ledger.js || echo "ledger.js 失败，继续"
           node build.js
-          mkdir -p site && cp index.html site/index.html
+          node journal-build.js
+          mkdir -p site/journal && cp index.html site/index.html && cp journal/*.html site/journal/
 
       - name: 保存数据库到 data 分支（只保留最新一份，不增加仓库体积）
         run: |
