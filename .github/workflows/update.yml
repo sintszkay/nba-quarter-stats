@@ -59,3 +59,9 @@ jobs:
           path: site
       - id: deploy
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      # Pages 偶尔报 “No artifacts named github-pages”（GitHub 端延迟），等 30 秒重试一次
+      - if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
