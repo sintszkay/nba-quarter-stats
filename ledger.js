@@ -6,7 +6,7 @@
 //   加 --refresh 可重新抓已结算比赛的盘前价格
 //
 // pm_ledger 每场一行（价格都是“主队赢”的价格，0–1）：
-//   open_p  开盘价（市场上线 2 小时后的第一笔，跳过 50¢ 占位价）  listed 市场上线时间  hist 每小时价格序列       h24_p  开赛前 24 小时    h1_p  开赛前 1 小时
+//   open_p  开盘价（市场上线 2 小时后的第一笔，跳过 50¢ 占位价）  listed 市场上线时间  hist 盘前价格走势 [[unix秒, 主队价]]（未开赛时每次运行刷新，开赛后冻结）       h24_p  开赛前 24 小时    h1_p  开赛前 1 小时
 //   close_p 开赛前最后一笔（收盘价）     snap_p 最近一次每日快照（未开赛时的买卖中间价）
 //   home_won ESPN 终场结果，pm_result Polymarket 实际结算（home/away），status: pending / settled / nopm / noml / mismatch
 // pm_snap 每次运行对未开赛比赛记一笔快照，可看盘口在开赛前怎么移动
@@ -89,6 +89,12 @@ async function one(g) {
     const p0 = bid > 0 && ask > 0 && ask - bid <= 0.05 ? (bid + ask) / 2 : Number(JSON.parse(m.outcomePrices)[0]);
     row.snap_p = r3(hi === 0 ? p0 : 1 - p0); row.snap_t = iso(now); row.status = 'pending';
     snapIns.run(slug, row.snap_t, row.snap_p);
+    // 盘前走势：上线至今的每小时价格（主队），最后补上本次快照；开赛后会被冻结的完整版本覆盖
+    try {
+      const H = await getJSON(`https://clob.polymarket.com/prices-history?market=${toks[hi]}&startTs=${Math.max(start - 15 * 86400 + 60, now - 15 * 86400 + 60)}&endTs=${now}&fidelity=60`);
+      const pts = (H?.history || []).map(x => [x.t, r3(x.p)]);
+      if (pts.length) { row.listed = iso(pts[0][0]); pts.push([now, row.snap_p]); row.hist = JSON.stringify(pts); }
+    } catch (e) {}
     return save(row);
   }
   // 已开赛：补 开盘 / 24h / 1h / 收盘
@@ -107,7 +113,11 @@ async function one(g) {
       row.open_p = op ? r3(op.p) : row.close_p; row.open_t = op ? iso(op.t) : row.start;
       row.h24_p = t0 <= start - 86400 - 2 * 3600 ? r3(at(start - 86400)) : null; // 上线不到 26 小时的没有 24h 价
       row.h1_p = r3(at(start - 3600));
-      row.hist = JSON.stringify(pts.map(x => [x.t, r3(x.p)]));
+      // 冻结盘前走势：每小时价格，开赛前 2 小时内改用每 10 分钟，最后一点 = 开赛价
+      const fine = []; let lastT = 0; for (const x of cp) if (x.t - lastT >= 600) { fine.push([x.t, r3(x.p)]); lastT = x.t; }
+      if (cp.length && fine.at(-1)[0] !== cp.at(-1).t) fine.push([cp.at(-1).t, r3(cp.at(-1).p)]);
+      const cut = fine.length ? fine[0][0] : Infinity;
+      row.hist = JSON.stringify([...pts.filter(x => x.t < cut).map(x => [x.t, r3(x.p)]), ...fine]);
     }
   }
   // 结算

@@ -117,6 +117,17 @@ footer { color: var(--muted); font-size: 12px }
 .path b { color: var(--ink) }
 .up9 { color: var(--win) } .dn9 { color: var(--lose) }
 .upset { font-size: 12px; color: var(--accent); font-weight: 600 }
+.spark { display: block }
+.games tr.clk { cursor: pointer } .games tr.clk:hover td { background: var(--mid) } .games tr.open td { background: var(--mid) }
+.games tr.det > td { white-space: normal; padding: 10px 8px 16px; background: var(--panel) }
+.tl { display: grid; gap: 8px; max-width: 760px }
+.tl-h { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: var(--muted) }
+.tl-h b { color: var(--ink); font-family: var(--mono) }
+.tl .seg { width: 180px; margin-left: auto }
+.tl svg { width: 100%; height: auto; display: block; touch-action: pan-y }
+.tl svg text { font: 11px var(--mono); fill: var(--muted) }
+.tl svg text.tip-t { fill: var(--ink); font-weight: 600 }
+.caret { color: var(--muted); font-size: 12px }
 .games th.sort { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px }
 </style>
 
@@ -145,7 +156,7 @@ footer { color: var(--muted); font-size: 12px }
 
   <section class="panel pmv" id="lgPendBox">
     <h2>待开赛</h2>
-    <p class="sub">最近一次运行 update.bat 时记录的盘前价格（买卖中间价）。开赛后下次运行会补上开赛价并结算。</p>
+    <p class="sub">最近一次更新时的盘前价格（买卖中间价）。走势 = 市场上线以来每小时的价格（热门视角），点击一行看大图。开赛后走势冻结为完整的盘前记录（开赛前 2 小时内每 10 分钟一点），结算后移到下面的比赛台账，点开仍可查看。</p>
     <div class="scroll"><table class="games" id="lgPend"></table></div>
   </section>
 
@@ -543,8 +554,97 @@ $('cPx').oninput = e => { cs.px = Number(e.target.value) || 50; calc(); };
 calc();
 
 // ---------- PM 台账 ----------
-const LEDGER = __LEDGER__.map(r => { const [d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol] = r;
-  return { d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol }; });
+const LEDGER = __LEDGER__.map(r => { const [d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist] = r;
+  return { d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist }; });
+// ---- 盘前走势 ----
+const HIST = {}, histWait = {};
+window.HIST_LOAD = (m, o) => { Object.assign(HIST, o); (histWait[m] || []).forEach(f => f()); delete histWait[m]; };
+function getHist(r, cb) {
+  if (r.hist) return cb(r.hist);
+  if (HIST[r.gid]) return cb(HIST[r.gid]);
+  const m = r.d.slice(0, 7);
+  if (!(META.histMonths || []).includes(m)) return cb(null);
+  const done = () => cb(HIST[r.gid] || null);
+  if (histWait[m]) return histWait[m].push(done);
+  histWait[m] = [done];
+  const sc = document.createElement('script'); sc.src = 'hist/' + m + '.js';
+  sc.onerror = () => { HIST_LOAD.failed = 1; (histWait[m] || []).forEach(f => f()); delete histWait[m]; };
+  document.head.appendChild(sc);
+}
+const relLab = mins => { const a = Math.abs(mins); return mins >= 0 ? '开赛' : a < 90 ? '−' + Math.round(a) + '分' : a < 48 * 60 ? '−' + Math.round(a / 60) + 'h' : '−' + (a / 1440).toFixed(a < 10 * 1440 ? 1 : 0).replace(/\.0$/, '') + '天'; };
+const firstPt = h => h.find(x => x[0] >= h[0][0] + 120) || h[0]; // 跳过上线头 2 小时的占位价
+function sparkSVG(h, flip) {
+  const W = 120, H = 28, P = h.map(([m, p]) => [m, flip ? 1000 - p : p]);
+  const x0 = P[0][0], x1 = Math.max(P.at(-1)[0], x0 + 1); let lo = Math.min(...P.map(x => x[1])), hi = Math.max(...P.map(x => x[1]));
+  if (hi - lo < 40) { const c = (hi + lo) / 2; lo = c - 20; hi = c + 20; }
+  const X = m => 2 + (m - x0) / (x1 - x0) * (W - 4), Y = p => H - 3 - (p - lo) / (hi - lo) * (H - 6);
+  const d = P.map((q, i) => (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1)).join('');
+  const L = P.at(-1);
+  return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/><circle cx="${X(L[0]).toFixed(1)}" cy="${Y(L[1]).toFixed(1)}" r="2.5" fill="var(--accent)"/></svg>`;
+}
+// 大图：h = [[距开赛分钟, 主队价×1000]]，flip = 显示客队；live = 未开赛（最后一点是“现在”）
+function bigChart(box, h, o) {
+  const state = { win: 'all' };
+  const draw = () => {
+    let P = h.map(([m, p]) => [m, o.flip ? 1000 - p : p]);
+    if (state.win === '48') { const lim = P.at(-1)[0] - 48 * 60; const pre = P.filter(x => x[0] < lim).at(-1); P = P.filter(x => x[0] >= lim); if (pre) P.unshift([lim, pre[1]]); }
+    const W = 720, H = 240, l = 44, r = 14, t = 14, b = 28;
+    const x0 = P[0][0], x1 = o.live ? Math.max(P.at(-1)[0], x0 + 60) : Math.max(0, P.at(-1)[0]);
+    let lo = Math.min(...P.map(x => x[1])), hi = Math.max(...P.map(x => x[1]));
+    const span = Math.max(60, hi - lo); lo = Math.max(0, (lo + hi) / 2 - span * .6); hi = Math.min(1000, lo + span * 1.2);
+    const X = m => l + (m - x0) / (x1 - x0 || 1) * (W - l - r), Y = p => t + (1 - (p - lo) / (hi - lo)) * (H - t - b);
+    const step = [10, 20, 50, 100, 200].find(s => (hi - lo) / s <= 5) || 200;
+    let g = '';
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) g += `<line x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${l - 6}" y="${Y(v) + 4}" text-anchor="end">${v / 10}¢</text>`;
+    const marks = [[-1440, '−24h'], [-60, '−1h'], [0, '开赛']].filter(([m]) => m > x0 && m <= x1);
+    for (const [m, lab] of marks) g += `<line x1="${X(m)}" x2="${X(m)}" y1="${t}" y2="${H - b}" stroke="var(--muted)" stroke-dasharray="3 3" opacity=".6"/><text visibility="${marks.some(([m2]) => m2 > m && X(m2) - X(m) < 34) ? 'hidden' : 'visible'}" x="${X(m)}" y="${H - b + 16}" text-anchor="middle">${lab}</text>`;
+    if (!marks.some(([m]) => X(m) - X(x0) < 50)) g += `<text x="${l}" y="${H - b + 16}">${relLab(x0)}</text>`;
+    if (o.live && !marks.some(([m]) => Math.abs(X(m) - X(x1)) < 40)) g += `<text x="${W - r}" y="${H - b + 16}" text-anchor="end">现在</text>`;
+    const d = P.map((q, i) => (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1)).join('');
+    const end = P.at(-1);
+    box.querySelector('.tl-c').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.team} 盘前价格走势">${g}
+      <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${X(end[0])}" cy="${Y(end[1])}" r="4" fill="var(--accent)" stroke="var(--panel)" stroke-width="2"/>
+      <g class="hv" visibility="hidden" pointer-events="none"><line class="hl" y1="${t}" y2="${H - b}" stroke="var(--ink)" opacity=".35"/><circle class="hc" r="4.5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2"/>
+      <rect class="hr" height="22" rx="4" fill="var(--panel)" stroke="var(--line)"/><text class="ht tip-t"></text></g>
+      <rect x="${l}" y="${t}" width="${W - l - r}" height="${H - t - b}" fill="transparent"/></svg>`;
+    const svg = box.querySelector('svg'), hv = svg.querySelector('.hv');
+    const move = ev => { const pt = svg.createSVGPoint(); const e = ev.touches ? ev.touches[0] : ev; pt.x = e.clientX; pt.y = e.clientY;
+      const lx = pt.matrixTransform(svg.getScreenCTM().inverse()).x, m = x0 + (lx - l) / (W - l - r) * (x1 - x0);
+      let q = P[0]; for (const z of P) if (Math.abs(z[0] - m) < Math.abs(q[0] - m)) q = z;
+      const cx = X(q[0]), cy = Y(q[1]);
+      const when = o.tip ? new Date(Date.parse(o.tip) + q[0] * 60000) : null;
+      const txt = `${(q[1] / 10).toFixed(1)}¢ · ${relLab(q[0])}${when ? ' · ' + fmtLocal(when) : ''}`;
+      hv.setAttribute('visibility', 'visible'); hv.querySelector('.hl').setAttribute('x1', cx); hv.querySelector('.hl').setAttribute('x2', cx);
+      hv.querySelector('.hc').setAttribute('cx', cx); hv.querySelector('.hc').setAttribute('cy', cy);
+      const T = hv.querySelector('.ht'); T.textContent = txt;
+      const tw = T.getComputedTextLength() + 14, tx = Math.min(Math.max(cx - tw / 2, l), W - r - tw), ty = cy - 34 < t ? cy + 12 : cy - 34;
+      const R = hv.querySelector('.hr'); R.setAttribute('x', tx); R.setAttribute('y', ty); R.setAttribute('width', tw);
+      T.setAttribute('x', tx + 7); T.setAttribute('y', ty + 15); };
+    svg.addEventListener('mousemove', move); svg.addEventListener('touchmove', move, { passive: true }); svg.addEventListener('touchstart', move, { passive: true });
+    svg.addEventListener('mouseleave', () => hv.setAttribute('visibility', 'hidden'));
+    for (const bt of box.querySelectorAll('.seg button')) bt.setAttribute('aria-pressed', String(bt.dataset.v === state.win));
+  };
+  const P0 = h.map(([m, p]) => o.flip ? 1000 - p : p), f0 = firstPt(h);
+  const op = (o.flip ? 1000 - f0[1] : f0[1]) / 10, now = P0.at(-1) / 10, mx = Math.max(...P0) / 10, mn = Math.min(...P0) / 10, dlt = now - op;
+  box.innerHTML = `<div class="tl"><div class="tl-h"><span><b>${o.team}</b> 赢的价格</span><span>开盘 <b>${op.toFixed(1)}¢</b></span><span>${o.live ? '现在' : '开赛价'} <b>${now.toFixed(1)}¢</b></span>
+    <span>变化 <b class="${dlt >= 1 ? 'up9' : dlt <= -1 ? 'dn9' : ''}">${dlt >= 0 ? '+' : ''}${dlt.toFixed(1)}¢</b></span><span>区间 <b>${mn.toFixed(1)}–${mx.toFixed(1)}¢</b></span>
+    <div class="seg"><button data-v="all">全部</button><button data-v="48">最后 48h</button></div></div><div class="tl-c"></div></div>`;
+  box.querySelector('.seg').addEventListener('click', e => { e.stopPropagation(); const bt = e.target.closest('button'); if (bt) { state.win = bt.dataset.v; draw(); } });
+  draw();
+}
+// 表格行点击 → 展开 / 收起走势
+const lgOpen = new Set();
+function toggleRow(tr, r, flip, team, live, cols) {
+  const key = r.d + r.home + r.away, nx = tr.nextElementSibling;
+  if (nx && nx.classList.contains('det')) { nx.remove(); tr.classList.remove('open'); lgOpen.delete(key); return; }
+  lgOpen.add(key); tr.classList.add('open');
+  const det = document.createElement('tr'); det.className = 'det'; det.innerHTML = `<td colspan="${cols}"><div class="tlbox"><span class="sub">载入走势…</span></div></td>`;
+  tr.after(det);
+  getHist(r, h => { const box = det.querySelector('.tlbox');
+    if (!h) { box.innerHTML = `<span class="sub">${HIST_LOAD.failed ? '走势文件没有载入（本地打开时 hist 文件夹要和 index.html 放在一起）' : '这场没有盘前走势记录'}</span>`; return; }
+    bigChart(box, h, { flip, team, live, tip: r.start }); });
+}
 const lg = { s: 'cur', team: '', type: 'all', f: 'all', lo: '', hi: '', shown: 50, sortK: 'diff', sortD: -1 };
 try { Object.assign(lg, JSON.parse(localStorage.getItem('nbalg') || '{}')); lg.shown = 50; } catch (e) {}
 let tab = 'q'; try { tab = localStorage.getItem('nbatab') || 'q'; } catch (e) {}
@@ -567,7 +667,7 @@ function showTab() {
   for (const b of $('tab').children) b.setAttribute('aria-pressed', String(b.dataset.v === tab));
   for (const el of document.querySelectorAll('.wrap > section')) el.hidden = el.classList.contains('pmv') ? tab !== 'pm' : tab === 'pm';
   $('foot').textContent = tab === 'pm'
-    ? `数据来源：Polymarket 胜负线价格 + ESPN 终场比分 · 台账 ${LEDGER.length} 场 · 最后更新 ${META.ledgerAt ? fmtLocal(META.ledgerAt) : '—'} · 运行 update.bat 更新`
+    ? `数据来源：Polymarket 胜负线价格 + ESPN 终场比分 · 台账 ${LEDGER.length} 场 · 最后更新 ${META.ledgerAt ? fmtLocal(META.ledgerAt) : '—'} · 每天自动更新 4 次`
     : `数据来源：ESPN 分节比分 · 共 ${RAW.length} 场 · 更新到 ${META.updated}（美东）· 季后赛含附加赛`;
   if (tab === 'pm') renderLG();
 }
@@ -609,21 +709,32 @@ function renderLG() {
   // 待开赛
   const pend = LEDGER.filter(r => !r.settled && (!lg.team || r.home === lg.team || r.away === lg.team)).sort((a, b) => a.start < b.start ? -1 : 1);
   $('lgPendBox').hidden = !pend.length;
-  $('lgPend').innerHTML = '<thead><tr><th>开赛（本地时间）</th><th>对阵</th><th>主队价格</th><th>客队价格</th><th>记录时间</th></tr></thead><tbody>' +
-    pend.map(r => { const p = r.snap ?? r.cl; if (p === null || p === undefined) return ''; const fh = p >= .5;
-      return `<tr><td class="num">${r.start ? fmtLocal(r.start) : r.d}</td><td>${r.away} @ ${r.home}</td>
+  const nowMs = Date.now(), started = r => r.start && Date.parse(r.start) <= nowMs;
+  const pp = r => { const h = r.hist; return h && !r.settled && started(r) ? h.at(-1)[1] / 1000 : r.snap ?? r.cl; }; // 已开赛：用冻结走势的最后一点（开赛价）
+  $('lgPend').innerHTML = '<thead><tr><th>开赛（本地时间）</th><th>对阵</th><th>主队价格</th><th>客队价格</th><th>热门走势</th><th>较开盘</th><th>记录时间</th><th></th></tr></thead><tbody>' +
+    pend.map((r, i) => { const p = pp(r); if (p === null || p === undefined) return ''; const fh = p >= .5, st = started(r);
+      const h = r.hist, f0 = h ? firstPt(h) : null;
+      const dl = h ? ((fh ? h.at(-1)[1] - f0[1] : f0[1] - h.at(-1)[1]) / 10) : null;
+      return `<tr class="clk" data-pi="${i}"><td class="num">${r.start ? fmtLocal(r.start) : r.d}${st ? ' <small>已开赛</small>' : ''}</td><td>${r.away} @ ${r.home}</td>
         <td class="num">${fh ? '<b>' : ''}${r.home} ${c1(p)}¢${fh ? '</b>' : ''}</td><td class="num">${!fh ? '<b>' : ''}${r.away} ${c1(1 - p)}¢${!fh ? '</b>' : ''}</td>
-        <td class="num">${r.snap === null ? '开赛价（待结算）' : r.snapT ? fmtLocal(r.snapT) : '—'}</td></tr>`; }).join('') + '</tbody>';
+        <td>${h ? sparkSVG(h, !fh) : '—'}</td><td class="num ${dl === null ? '' : dl >= 1 ? 'up9' : dl <= -1 ? 'dn9' : ''}">${dl === null ? '—' : (dl >= 0 ? '+' : '') + dl.toFixed(1) + '¢'}</td>
+        <td class="num">${st ? '开赛价·已冻结' : r.snapT ? fmtLocal(r.snapT) : '—'}</td><td class="caret">▾</td></tr>`; }).join('') + '</tbody>';
+  $('lgPend').onclick = e => { const tr = e.target.closest('tr.clk'); if (!tr) return; const r = pend[+tr.dataset.pi], fh = pp(r) >= .5;
+    toggleRow(tr, r, !fh, fh ? r.home : r.away, !started(r), 8); };
+  for (const tr of $('lgPend').querySelectorAll('tr.clk')) { const r = pend[+tr.dataset.pi], k = r.d + r.home + r.away; if (lgOpen.has(k)) { lgOpen.delete(k); tr.click(); } }
 
   // 比赛台账
-  $('lgGlSub').textContent = `${scopeTxt} · ${list.length} 场，从新到旧。价格为${lg.team ? ' ' + lg.team + ' ' : '开赛价热门'}赢的价格：开盘（上线 2 小时后）→ 开赛前 24h → 1h → 开赛价；“移动”= 开赛价 − 开盘，单位 ¢。`;
-  $('lgGl').innerHTML = `<thead><tr><th>日期（美东）</th><th>${lg.team ? '本队' : '热门'}</th><th>对手</th><th>开盘 → 24h → 1h → 开赛价</th><th>移动</th><th>比分</th><th>结果</th><th></th></tr></thead><tbody>` +
-    list.slice(0, lg.shown).map(({ r, v }) => { const m = v.op === null ? null : v.cl - v.op;
-      return `<tr><td class="num">${r.d}${r.t !== 2 ? ' <small>季后</small>' : ''}</td><td>${v.team}</td><td>${v.home ? 'vs' : '@'} ${v.opp}</td>
+  $('lgGlSub').textContent = `${scopeTxt} · ${list.length} 场，从新到旧。价格为${lg.team ? ' ' + lg.team + ' ' : '开赛价热门'}赢的价格：开盘（上线 2 小时后）→ 开赛前 24h → 1h → 开赛价；“移动”= 开赛价 − 开盘，单位 ¢。点击一行看完整盘前走势。`;
+  const shownL = list.slice(0, lg.shown);
+  $('lgGl').innerHTML = `<thead><tr><th>日期（美东）</th><th>${lg.team ? '本队' : '热门'}</th><th>对手</th><th>开盘 → 24h → 1h → 开赛价</th><th>移动</th><th>比分</th><th>结果</th><th></th><th></th></tr></thead><tbody>` +
+    shownL.map(({ r, v }, i) => { const m = v.op === null ? null : v.cl - v.op;
+      return `<tr class="clk" data-li="${i}"><td class="num">${r.d}${r.t !== 2 ? ' <small>季后</small>' : ''}</td><td>${v.team}</td><td>${v.home ? 'vs' : '@'} ${v.opp}</td>
         <td class="path">${c1(v.op)} → ${c1(v.h24)} → ${c1(v.h1)} → <b>${c1(v.cl)}¢</b></td>
         <td class="num ${m === null ? '' : m >= .03 ? 'up9' : m <= -.03 ? 'dn9' : ''}">${m === null ? '—' : (m > 0 ? '+' : '') + Math.round(m * 100)}</td>
-        <td class="num">${v.pf}-${v.pa}</td><td><span class="wl ${v.won ? 'w' : 'l'}">${v.won ? 'W' : 'L'}</span></td><td>${v.upset ? '<span class="upset">冷门 ⚡</span>' : ''}</td></tr>`; }).join('') + '</tbody>';
+        <td class="num">${v.pf}-${v.pa}</td><td><span class="wl ${v.won ? 'w' : 'l'}">${v.won ? 'W' : 'L'}</span></td><td>${v.upset ? '<span class="upset">冷门 ⚡</span>' : ''}</td><td class="caret">走势 ▾</td></tr>`; }).join('') + '</tbody>';
   $('lgMore').hidden = list.length <= lg.shown;
+  $('lgGl').onclick = e => { const tr = e.target.closest('tr.clk'); if (!tr) return; const { r, v } = shownL[+tr.dataset.li]; toggleRow(tr, r, !v.home, v.team, false, 9); };
+  for (const tr of $('lgGl').querySelectorAll('tr.clk')) { const r = shownL[+tr.dataset.li].r, k = r.d + r.home + r.away; if (lgOpen.has(k)) { lgOpen.delete(k); tr.click(); } }
 
   // 各队
   const TB = LEDGER.filter(r => r.settled && r.cl !== null && (sel === null || r.s === sel) && typeOk(r));
