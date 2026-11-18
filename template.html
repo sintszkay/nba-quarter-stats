@@ -82,6 +82,9 @@ td.cell.empty { color: var(--muted); background: var(--mid); cursor: default }
 .h2hsum b { display: block; font: 700 20px/1.2 var(--mono) }
 .h2hsum small { color: var(--muted); font-size: 12px }
 .games td.pos { color: var(--win) } .games td.neg { color: var(--lose) }
+.qth { font-size: 15px; margin: 18px 0 4px }
+.games.qt th small, .games.qt td small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400 }
+.games.qt tr.grp td { background: var(--bg); color: var(--muted); font-size: 12.5px; font-weight: 600 }
 .games { width: 100%; border-spacing: 0; font-size: 13px }
 .games th, .games td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap }
 .games td.num { font-family: var(--mono) }
@@ -234,6 +237,9 @@ footer { color: var(--muted); font-size: 12px }
     <h2>每节平均得分</h2>
     <p class="sub" id="qsSub"></p>
     <div class="scroll"><table class="games" id="qsTab"></table></div>
+    <h3 class="qth">每节技术统计</h3>
+    <p class="sub" id="qtSub"></p>
+    <div class="scroll"><table class="games qt" id="qtTab"></table></div>
   </section>
 
   <section class="panel" id="h2hBox">
@@ -271,12 +277,13 @@ const sLab = s => `${s}-${String(s + 1).slice(2)}`;
 
 // 展开为队伍视角
 const P = [];
-for (const r of RAW) {
+RAW.forEach((r, ri) => {
   const [d, s, t, h, a, h1, h2, h3, h4, a1, a2, a3, a4, hf, af, ot] = r;
   const hc = [h1, h1 + h2, h1 + h2 + h3], ac = [a1, a1 + a2, a1 + a2 + a3];
   P.push({ d, s, t, team: h, opp: a, home: true, m: hc.map((v, i) => v - ac[i]), qf: [h1, h2, h3, h4], qa: [a1, a2, a3, a4], win: hf > af, f: hf + '-' + af, ot });
   P.push({ d, s, t, team: a, opp: h, home: false, m: ac.map((v, i) => v - hc[i]), qf: [a1, a2, a3, a4], qa: [h1, h2, h3, h4], win: af > hf, f: af + '-' + hf, ot });
-}
+  P.at(-2).ri = P.at(-1).ri = ri;
+});
 
 const st = { team: 'PHI', site: 'home', q: 2, mode: 'lead', x: 10, y: 5, vs: '', type: 'all',
   seasons: SEASONS.filter(s => s < META.current) };
@@ -375,6 +382,70 @@ function render() {
   $('more').hidden = games.length <= shown;
   renderH2H();
   renderQS(base);
+  qtBase = base; renderQT();
+}
+
+// ---------- 每节技术统计（qs-data.js 异步加载；按行号对应 RAW；每场 80 个数：主队 4 节 × 10 项，再客队）----------
+let QS = null, qtBase = null;
+const QK = ['fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta', 'oreb', 'dreb', 'ast', 'tov'];
+function QS_LOAD(a) { QS = a.map(x => x ? x.split(',').map(Number) : null); if (qtBase) renderQT(); }
+(() => { const sc = document.createElement('script'); sc.src = 'qs-data.js'; sc.async = true;
+  sc.onerror = () => { $('qtSub').textContent = '技术统计数据加载失败。'; }; document.head.appendChild(sc); })();
+function qtAgg(L) { // 返回 { n, me[q][k], op[q][k] }（场均），q=0..3 为各节，4 为四节合计
+  const me = Array.from({ length: 5 }, () => new Array(10).fill(0)), op = Array.from({ length: 5 }, () => new Array(10).fill(0)); let n = 0;
+  for (const p of L) { const a = QS[p.ri]; if (!a) continue; n++; const mo = p.home ? 0 : 40, oo = p.home ? 40 : 0;
+    for (let q = 0; q < 4; q++) for (let k = 0; k < 10; k++) { const x = a[mo + q * 10 + k], y = a[oo + q * 10 + k]; me[q][k] += x; op[q][k] += y; me[4][k] += x; op[4][k] += y; } }
+  if (n) for (const T of [me, op]) for (const r of T) for (let k = 0; k < 10; k++) r[k] /= n;
+  return { n, me, op };
+}
+function renderQT() {
+  if (!QS) { $('qtSub').textContent = '技术统计加载中…'; $('qtTab').innerHTML = ''; return; }
+  const siteTxt = { all: '主客场', home: '主场', away: '客场' }, seaTxt = st.seasons.map(sLab).join('、') || '未选赛季';
+  const pool = P.filter(p => st.seasons.includes(p.s) && (st.type === 'all' || (st.type === 'reg' ? p.t === 2 : p.t !== 2)));
+  const bySite = (L, site) => site === 'all' ? L : L.filter(p => p.home === (site === 'home'));
+  const lg = qtAgg(pool);
+  const pct = (m, a) => a ? m / a * 100 : null;
+  // 与联盟同节平均比较：本队数据高于平均为好；对手数据低于平均为好（失误相反）
+  const cmp = (v, ref, good, tol) => v === null || ref === null ? '' : v - ref > tol ? (good ? 'pos' : 'neg') : ref - v > tol ? (good ? 'neg' : 'pos') : '';
+  const qn = i => i < 4 ? `第${i + 1}节` : '四节合计';
+  const rowsOf = (A) => [0, 1, 2, 3, 4].map(i => { const m = A.me[i], o = A.op[i], lm = lg.me[i], k = Object.fromEntries(QK.map((x, j) => [x, j]));
+    const fg = pct(m[0], m[1]), ofg = pct(o[0], o[1]), lfg = pct(lm[0], lm[1]);
+    const tp = pct(m[2], m[3]), otp = pct(o[2], o[3]), ltp = pct(lm[2], lm[3]);
+    const ft = pct(m[4], m[5]);
+    const reb = m[6] + m[7], oreb = o[6] + o[7], lreb = lm[6] + lm[7], sc = i < 4 ? 1 : 4;
+    const f1 = v => v === null ? '—' : v.toFixed(1) + '%', d1 = v => v.toFixed(1);
+    return `<tr><td>${qn(i)}</td>
+      <td class="num ${cmp(fg, lfg, true, 1)}"><b>${f1(fg)}</b><small>${d1(m[0])}-${d1(m[1])}</small></td>
+      <td class="num ${cmp(ofg, lfg, false, 1)}">${f1(ofg)}</td>
+      <td class="num ${cmp(tp, ltp, true, 1.5)}"><b>${f1(tp)}</b><small>${d1(m[2])}-${d1(m[3])}</small></td>
+      <td class="num ${cmp(otp, ltp, false, 1.5)}">${f1(otp)}</td>
+      <td class="num ${cmp(m[5], lm[5], true, .3 * sc)}">${d1(m[5])}<small>${f1(ft)}</small></td>
+      <td class="num ${cmp(o[5], lm[5], false, .3 * sc)}">${d1(o[5])}</td>
+      <td class="num ${cmp(reb, lreb, true, .4 * sc)}"><b>${d1(reb)}</b><small>进攻 ${d1(m[6])}</small></td>
+      <td class="num ${cmp(oreb, lreb, false, .4 * sc)}">${d1(oreb)}<small>进攻 ${d1(o[6])}</small></td>
+      <td class="num ${cmp(m[8], lm[8], true, .3 * sc)}">${d1(m[8])}</td>
+      <td class="num ${cmp(m[9], lm[9], false, .2 * sc)}">${d1(m[9])}</td>
+      <td class="num ${cmp(o[9], lm[9], true, .2 * sc)}">${d1(o[9])}</td></tr>`; }).join('');
+  const head = '<thead><tr><th>节</th><th>投篮<small>命中-出手</small></th><th>对手投篮</th><th>三分<small>命中-出手</small></th><th>对手三分</th><th>罚球出手<small>命中率</small></th><th>对手罚球</th><th>篮板</th><th>对手篮板</th><th>助攻</th><th>失误</th><th>对手失误</th></tr></thead><tbody>';
+  const grp = t => `<tr class="grp"><td colspan="12">${t}</td></tr>`;
+  const note = '数值为场均（命中率按总命中 ÷ 总出手）。绿色 / 红色 = 比联盟同节平均好 / 差（对手数据和失误越低越好）。篮板不含球队篮板；2021-22 赛季的三分出手是按投篮距离推算的，可能有 ±1 的误差。';
+  if (st.team === 'ALL') {
+    $('qtSub').textContent = `全联盟 · ${seaTxt} · 每队每场平均（${lg.n / 2 | 0} 场有逐回合记录）。${note}`;
+    $('qtTab').innerHTML = head + rowsOf(lg) + '</tbody>'; return;
+  }
+  const me = qtAgg(bySite(pool, st.site).filter(p => p.team === st.team));
+  let html = head + (st.vs ? grp(`${st.team} ${CN[st.team]} · ${siteTxt[st.site]}全部比赛（${me.n} 场）`) : '') + (me.n ? rowsOf(me) : '<tr><td colspan="12">没有符合条件的比赛</td></tr>');
+  let sub = `${st.team} ${CN[st.team]} · ${siteTxt[st.site]} · ${seaTxt} · ${me.n} 场。`;
+  if (st.vs) {
+    const oppSite = st.site === 'home' ? 'away' : st.site === 'away' ? 'home' : 'all';
+    const op = qtAgg(bySite(pool, oppSite).filter(p => p.team === st.vs));
+    const hh = qtAgg(qtBase.filter(p => p.team === st.team));
+    html += grp(`${st.vs} ${CN[st.vs]} · ${siteTxt[oppSite]}全部比赛（${op.n} 场）`) + (op.n ? rowsOf(op) : '<tr><td colspan="12">没有符合条件的比赛</td></tr>');
+    html += grp(`两队交手时 ${st.team} 视角（${hh.n} 场）`) + (hh.n ? rowsOf(hh) : '<tr><td colspan="12">没有交手记录</td></tr>');
+    sub = `${seaTxt} · 上：${st.team}；中：${st.vs}；下：两队交手时。`;
+  }
+  $('qtSub').textContent = sub + note;
+  $('qtTab').innerHTML = html + '</tbody>';
 }
 // ---------- 每节平均得分（跟随场地 / 对手 / 赛季 / 比赛类型筛选，不受分差和时间点影响）----------
 function renderQS(base) {
