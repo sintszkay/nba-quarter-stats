@@ -318,6 +318,17 @@ const BUCKETS = [[15, 999, '领先 15+'], [10, 14, '领先 10–14'], [5, 9, '�
   [-4, -1, '落后 1–4'], [-9, -5, '落后 5–9'], [-14, -10, '落后 10–14'], [-999, -15, '落后 15+']];
 let shown = 30;
 
+// 某场比赛该队的 PM 开赛价（只在台账里有的比赛）
+const pmPre = p => { const r = window.LGMAP && window.LGMAP.get(p.d + (p.home ? p.team + p.opp : p.opp + p.team)); if (!r || r.cl === null) return null; return p.home ? r.cl : 1 - r.cl; };
+// 参考价：优先用该队下一场待开赛比赛（场地、对手吻合）的最新价；否则用本季该场地的平均开赛价
+function simPrice(team, site, vs) {
+  const nx = LEDGER.filter(r => !r.settled && r.snap !== null && (r.home === team || r.away === team) && (!vs || r.home === vs || r.away === vs) &&
+    (site === 'all' || (site === 'home') === (r.home === team))).sort((x, y) => x.start < y.start ? -1 : 1)[0];
+  if (nx) return { p: nx.home === team ? nx.snap : 1 - nx.snap, src: `下一场 ${nx.away} @ ${nx.home}` };
+  const L = P.filter(p => p.team === team && p.s === META.current && (site === 'all' || p.home === (site === 'home'))).map(pmPre).filter(x => x !== null);
+  return L.length ? { p: L.reduce((x, y) => x + y, 0) / L.length, src: `本季${site === 'home' ? '主场' : site === 'away' ? '客场' : ''}平均开赛价` } : null;
+}
+
 function render() {
   try { localStorage.setItem('nbaq5', JSON.stringify(st)); } catch (e) {}
   // 同步控件
@@ -333,6 +344,17 @@ function render() {
     (st.site === 'all' || p.home === (st.site === 'home')) && (!st.vs || p.opp === st.vs));
   const mine = st.team === 'ALL' ? base : base.filter(p => p.team === st.team);
   const [a, b] = range(); const r = stat(mine, st.q, a, b), lg = stat(base, st.q, a, b);
+  // “领先/落后 ≥X” 会把大比分的比赛也算进去；另算一个窄区间（X 到 X+3 分）做对照
+  const nr = st.mode === 'range' ? null : st.mode === 'lead' ? [st.x, st.x + 3] : [-(st.x + 3), -st.x];
+  const nTxt = nr && (st.mode === 'lead' ? `领先 ${st.x}–${st.x + 3} 分` : `落后 ${st.x}–${st.x + 3} 分`);
+  const rN = nr && stat(mine, st.q, nr[0], nr[1]), lgN = nr && stat(base, st.q, nr[0], nr[1]);
+  // 同类赛前价格：PM 开赛价与该队相近（±7¢）的同场地球队，不分对手；条件用窄区间（若有）
+  const sim = st.team === 'ALL' ? null : simPrice(st.team, st.site, st.vs);
+  let simR = null;
+  if (sim) { const [sa, sb] = nr || [a, b];
+    const pool = P.filter(p => st.seasons.includes(p.s) && (st.type === 'all' || (st.type === 'reg' ? p.t === 2 : p.t !== 2)) &&
+      (st.site === 'all' || p.home === (st.site === 'home')) && (() => { const q = pmPre(p); return q !== null && Math.abs(q - sim.p) <= .07; })());
+    simR = stat(pool, st.q, sa, sb); }
   const who = st.team === 'ALL' ? '全联盟' : `${st.team} ${CN[st.team]}`;
   const siteTxt = { all: '主客场', home: '主场', away: '客场' }[st.site];
 
@@ -341,6 +363,8 @@ function render() {
   $('vpct').style.color = r.p === null ? 'var(--muted)' : r.p >= .5 ? 'var(--win)' : 'var(--lose)';
   $('vrec').textContent = `${r.w} 胜 ${r.l} 负`;
   const chips = [];
+  if (nr && lgN.p !== null && lg.p !== null && Math.abs(lgN.p - lg.p) >= .1)
+    chips.push(`<span class="chip warn">“${st.mode === 'lead' ? '领先' : '落后'} ≥${st.x}”包含大比分的比赛；只看${nTxt}，联盟胜率是 ${fmt(lgN.p)}</span>`);
   if (r.n === 0) chips.push('<span class="chip warn">没有符合条件的比赛</span>');
   else if (r.n < 20) chips.push(`<span class="chip warn">样本仅 ${r.n} 场，参考性弱</span>`);
   else chips.push(`<span class="chip">样本 ${r.n} 场</span>`);
@@ -354,8 +378,10 @@ function render() {
   const kv = (name, note, p, rec) => `<div class="kv"><div>${name}<small>${note}</small><div class="bar"><i style="width:${p === null ? 0 : p * 100}%"></i></div></div><b>${fmt(p)}<small style="text-align:right">${rec}</small></b></div>`;
   $('cmp').innerHTML =
     kv(who, `${QN[st.q]}${condTxt()}`, r.p, `${r.w}-${r.l}`) +
-    (st.team !== 'ALL' ? kv('全联盟基准', '同场地、同条件的所有球队', lg.p, `${lg.w}-${lg.l}`) : '') +
-    `<div class="kv"><div>按胜率换算的公允价<small>预测市场里“该队赢”的合约价格</small></div><b>${r.p === null ? '—' : Math.round(r.p * 100) + '¢'}</b></div>`;
+    (st.team !== 'ALL' ? kv('全联盟基准', `所有球队，不分强弱 · 同场地${st.vs ? '、对手 ' + st.vs : ''}、同条件`, lg.p, `${lg.w}-${lg.l}`) : '') +
+    (nr ? kv(`只看${nTxt}`, `不含大比分 · ${st.team === 'ALL' ? '' : (rN.n ? `${st.team} ${rN.w}-${rN.l}，` : `${st.team} 无样本，`)}联盟 ${lgN.w}-${lgN.l}`, st.team !== 'ALL' && rN.n >= 10 ? rN.p : lgN.p, st.team !== 'ALL' && rN.n >= 10 ? `${rN.w}-${rN.l}` : `${lgN.w}-${lgN.l}`) : '') +
+    (simR ? kv(`同类赛前价 ${Math.round((sim.p - .07) * 100)}–${Math.round((sim.p + .07) * 100)}¢ 的球队`, `参考价 ${Math.round(sim.p * 100)}¢（${sim.src}）· ${siteTxt} · 不分对手 · ${nr ? nTxt : condTxt()} · 2024-10 起有盘口`, simR.p, `${simR.w}-${simR.l}`) : '') +
+    `<div class="kv"><div>按胜率换算的公允价<small>${r.n >= 20 ? '按上面第一行的胜率换算' : '本队样本不足 20 场，' + (simR && simR.n >= 20 ? '改用“同类赛前价”那一行' : '仅供参考')}</small></div><b>${(() => { const p = r.n >= 20 ? r.p : simR && simR.n >= 20 ? simR.p : r.p; return p === null ? '—' : Math.round(p * 100) + '¢'; })()}</b></div>`;
 
   // 全景表
   $('hmSub').textContent = `${who} · ${siteTxt} · ${st.seasons.map(sLab).join('、') || '未选赛季'} · 共 ${mine.length} 场（${mine.filter(p => p.win).length} 胜）。格子颜色越绿胜率越高，点击格子可直接查询。`;
