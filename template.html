@@ -98,6 +98,9 @@ footer { color: var(--muted); font-size: 12px }
 .calc-in .wide { grid-column: 1 / -1 }
 .unit { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px }
 .unit em { font: 500 12px var(--mono); color: var(--muted); font-style: normal }
+.unit.sgn { grid-template-columns: auto 1fr auto }
+.unit.sgn button { font: 600 16px var(--mono); min-width: 40px; height: 100%; min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--mid); color: var(--ink); cursor: pointer }
+.unit.sgn button:hover { border-color: var(--accent, var(--ink)) }
 .calc-out { display: grid; gap: 10px; align-content: start }
 .fair { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap }
 .fair .pct { font: 700 56px/1 var(--display); font-variant-numeric: tabular-nums }
@@ -192,7 +195,7 @@ footer { color: var(--muted); font-size: 12px }
         <div class="ctl wide"><span>时间点</span><div class="seg" id="cT">
           <button data-v="36">第1节结束</button><button data-v="24">半场</button><button data-v="12">第3节结束</button><button data-v="c">自定义</button></div></div>
         <label class="ctl" id="cMinBox"><span>剩余分钟</span><div class="unit"><input type="number" id="cMin" min="0.5" max="48" step="0.5"><em>分钟</em></div></label>
-        <label class="ctl"><span>当前分差（正=领先）</span><div class="unit"><input type="number" id="cM" min="-60" max="60" step="1"><em>分</em></div></label>
+        <div class="ctl"><span>当前分差（+ 领先 / − 落后）</span><div class="unit sgn"><button type="button" id="cMs" aria-label="正负切换" title="正负切换">±</button><input type="text" id="cM" autocomplete="off" placeholder="例如 -3 或 +5" aria-label="当前分差"><em>分</em></div></div>
         <label class="ctl"><span>市场价（买该队赢）</span><div class="unit"><input type="number" id="cPx" min="1" max="99" step="1"><em>¢</em></div></label>
       </div>
       <div class="calc-out">
@@ -600,7 +603,8 @@ const spreadOf = p => -Math.round(SD * invPhi(p / 100) * 2) / 2;
 function calc() {
   try { localStorage.setItem('nbaqc', JSON.stringify(cs)); } catch (e) {}
   const minLeft = cs.t === 'c' ? cs.min : Number(cs.t);
-  $('cP').value = cs.p; $('cM').value = cs.m; $('cPx').value = cs.px; $('cMin').value = minLeft;
+  $('cP').value = cs.p; $('cPx').value = cs.px; $('cMin').value = minLeft;
+  if (document.activeElement !== $('cM')) $('cM').value = sgnTxt(cs.m); // 正在输入时不改写，否则打 “-” 会被清掉
   if (document.activeElement !== $('cS')) $('cS').value = spreadOf(cs.p);
   for (const b of $('cT').children) b.setAttribute('aria-pressed', String(b.dataset.v === cs.t));
   $('cMinBox').hidden = cs.t !== 'c';
@@ -646,7 +650,13 @@ $('cP').oninput = e => { cs.p = Number(e.target.value) || 50; calc(); };
 $('cS').oninput = e => { const s = Number(e.target.value); if (!isNaN(s)) { cs.p = Math.round(Phi(-s / SD) * 100); calc(); } };
 $('cT').onclick = e => { const b = e.target.closest('button'); if (!b) return; cs.t = b.dataset.v; calc(); };
 $('cMin').oninput = e => { cs.min = Math.min(48, Math.max(0, Number(e.target.value) || 0)); calc(); };
-$('cM').oninput = e => { cs.m = Number(e.target.value) || 0; calc(); };
+// 分差：可输入 +5 / -3 / −3 / 3；只打了 “+” “-” 时先不计算
+const sgnTxt = m => m > 0 ? '+' + m : String(m);
+const parseM = v => { const t = String(v).replace(/[−–—]/g, '-').replace(/\s/g, ''); return /^[+-]?\d{1,2}$/.test(t) ? Number(t) : null; };
+$('cM').oninput = e => { const m = parseM(e.target.value); if (m !== null) { cs.m = Math.max(-60, Math.min(60, m)); calc(); } };
+$('cM').onblur = () => { $('cM').value = sgnTxt(cs.m); };
+$('cM').onkeydown = e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); cs.m += e.key === 'ArrowUp' ? 1 : -1; $('cM').value = sgnTxt(cs.m); calc(); } };
+$('cMs').onclick = () => { cs.m = -cs.m; $('cM').value = sgnTxt(cs.m); calc(); };
 $('cPx').oninput = e => { cs.px = Number(e.target.value) || 50; calc(); };
 calc();
 
