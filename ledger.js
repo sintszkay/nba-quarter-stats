@@ -151,8 +151,8 @@ async function pool(list, n, label) {
     console.log(`补录 ${season}-${String(season + 1).slice(2)} 赛季 ${todo.length} 场...`);
     await pool(todo, 5, '补录');
   } else {
-    // 1) 今天 + 明天（美东）的比赛：记盘前快照
-    for (const date of [etDate(), etDate(new Date(Date.now() + 864e5))]) {
+    // 今天起 3 天（美东）：遇到感恩节、全明星等空档日，也能提前记录下一个比赛日
+    for (const date of [0, 1, 2].map(k => etDate(new Date(Date.now() + k * 864e5)))) {
       const sb = await getJSON(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${date.replace(/-/g, '')}&limit=100`);
       const evs = sb?.events || [];
       for (const e of evs) {
