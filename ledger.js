@@ -8,6 +8,8 @@
 // pm_ledger 每场一行（价格都是“主队赢”的价格，0–1）：
 //   open_p  开盘价（市场上线 2 小时后的第一笔，跳过 50¢ 占位价）  listed 市场上线时间  hist 盘前价格走势 [[unix秒, 主队价]]（未开赛时每次运行刷新，开赛后冻结）       h24_p  开赛前 24 小时    h1_p  开赛前 1 小时
 //   close_p 开赛前最后一笔（收盘价）     snap_p 最近一次每日快照（未开赛时的买卖中间价）
+//   sp_line 让分主盘口（主队视角，负数 = 主队让分；取 PM 全场让分里价格最接近 50¢ 的那条线），未开赛时每次运行刷新，开赛后改为开赛时刻的主盘口
+//   sp_p 主队在该让分盘口的价格   sp_open 第一次记录到的主盘口   sp_hist 盘前主盘口变化 [[unix秒, 主队让分]]
 //   home_won ESPN 终场结果，pm_result Polymarket 实际结算（home/away），status: pending / settled / nopm / noml / mismatch
 // pm_snap 每次运行对未开赛比赛记一笔快照，可看盘口在开赛前怎么移动
 const { DatabaseSync } = require('node:sqlite');
@@ -17,7 +19,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS pm_ledger (
   game_id TEXT PRIMARY KEY, season INTEGER, stype INTEGER, date TEXT, start TEXT, home TEXT, away TEXT, slug TEXT, status TEXT,
   open_p REAL, open_t TEXT, h24_p REAL, h1_p REAL, close_p REAL, snap_p REAL, snap_t TEXT, volume REAL,
   hf INTEGER, af INTEGER, home_won INTEGER, pm_result TEXT, updated TEXT)`);
-for (const [c, ty] of [['listed', 'TEXT'], ['hist', 'TEXT']]) if (!db.prepare('PRAGMA table_info(pm_ledger)').all().some(x => x.name === c)) db.exec(`ALTER TABLE pm_ledger ADD COLUMN ${c} ${ty}`);
+for (const [c, ty] of [['listed', 'TEXT'], ['hist', 'TEXT'], ['sp_open', 'REAL'], ['sp_line', 'REAL'], ['sp_p', 'REAL'], ['sp_hist', 'TEXT']]) if (!db.prepare('PRAGMA table_info(pm_ledger)').all().some(x => x.name === c)) db.exec(`ALTER TABLE pm_ledger ADD COLUMN ${c} ${ty}`);
 db.exec(`CREATE TABLE IF NOT EXISTS pm_snap (slug TEXT, t TEXT, home_p REAL, PRIMARY KEY (slug, t))`);
 
 const MAP = { NY: 'NYK', GS: 'GSW', SA: 'SAS', NO: 'NOP', UTAH: 'UTA', WSH: 'WAS' };
@@ -60,10 +62,26 @@ async function findEvent(date, home, away, tipGuess) {
 const startOf = (ev, m) => ts(m.gameStartTime ? m.gameStartTime.replace(' ', 'T').replace('+00', 'Z') : ev.startTime);
 
 const getRow = db.prepare('SELECT * FROM pm_ledger WHERE game_id=?');
-const COLS = ['game_id', 'season', 'stype', 'date', 'start', 'home', 'away', 'slug', 'status', 'open_p', 'open_t', 'h24_p', 'h1_p', 'close_p', 'snap_p', 'snap_t', 'volume', 'hf', 'af', 'home_won', 'pm_result', 'updated', 'listed', 'hist'];
+const COLS = ['game_id', 'season', 'stype', 'date', 'start', 'home', 'away', 'slug', 'status', 'open_p', 'open_t', 'h24_p', 'h1_p', 'close_p', 'snap_p', 'snap_t', 'volume', 'hf', 'af', 'home_won', 'pm_result', 'updated', 'listed', 'hist', 'sp_open', 'sp_line', 'sp_p', 'sp_hist'];
 const put = db.prepare(`INSERT OR REPLACE INTO pm_ledger VALUES (${COLS.map(() => '?').join(',')})`);
 const save = o => put.run(...COLS.map(c => o[c] ?? null));
 const snapIns = db.prepare('INSERT OR REPLACE INTO pm_snap VALUES (?,?,?)');
+
+// 全场让分盘：PM 一场有多条让分线，每条是一个市场；line 是 outcomes[0] 那队的让分。换成主队视角
+const spreadMkts = (ev, homeOut) => ev.markets.filter(x => x.sportsMarketType === 'spreads' && x.line !== undefined && x.line !== null).map(x => {
+  const o = JSON.parse(x.outcomes || '[]'), px = JSON.parse(x.outcomePrices || '[]').map(Number), toks = JSON.parse(x.clobTokenIds || '[]');
+  const h = o.indexOf(homeOut); if (h < 0) return null;
+  return { line: h === 0 ? Number(x.line) : -Number(x.line), p: px[h], tok: toks[h], vol: Number(x.volumeNum ?? x.volume) || 0 };
+}).filter(Boolean);
+// 主盘口 = 价格最接近 50¢ 的线（同样接近时取成交量大的）
+const mainLine = L => L.filter(x => x.p > 0 && x.p < 1).sort((a, b) => Math.abs(a.p - .5) - Math.abs(b.p - .5) || b.vol - a.vol)[0] || null;
+function noteSpread(row, ln, t) {
+  if (!ln) return;
+  row.sp_line = ln.line; row.sp_p = r3(ln.p); if (row.sp_open === null || row.sp_open === undefined) row.sp_open = ln.line;
+  const H = row.sp_hist ? JSON.parse(row.sp_hist) : [];
+  if (!H.length || H.at(-1)[1] !== ln.line) H.push([t, ln.line]);
+  row.sp_hist = JSON.stringify(H);
+}
 
 // 处理一场：g = {id, season, stype, date, home, away, homeName?, hf?, af?, tipGuess?}
 async function one(g) {
@@ -89,6 +107,7 @@ async function one(g) {
     const p0 = bid > 0 && ask > 0 && ask - bid <= 0.05 ? (bid + ask) / 2 : Number(JSON.parse(m.outcomePrices)[0]);
     row.snap_p = r3(hi === 0 ? p0 : 1 - p0); row.snap_t = iso(now); row.status = 'pending';
     snapIns.run(slug, row.snap_t, row.snap_p);
+    try { noteSpread(row, mainLine(spreadMkts(ev, outs[hi])), now); } catch (e) {}
     // 盘前走势：上线至今的每小时价格（主队），最后补上本次快照；开赛后会被冻结的完整版本覆盖
     try {
       const H = await getJSON(`https://clob.polymarket.com/prices-history?market=${toks[hi]}&startTs=${Math.max(start - 15 * 86400 + 60, now - 15 * 86400 + 60)}&endTs=${now}&fidelity=60`);
@@ -119,6 +138,16 @@ async function one(g) {
       const cut = fine.length ? fine[0][0] : Infinity;
       row.hist = JSON.stringify([...pts.filter(x => x.t < cut).map(x => [x.t, r3(x.p)]), ...fine]);
     }
+  }
+  // 让分：开赛后第一次运行时，用各条线开赛那一刻的价格重新选主盘口（只做一次）
+  if (!row.sp_hist || !JSON.parse(row.sp_hist).some(x => x[2] === 'tip')) {
+    try {
+      const L = spreadMkts(ev, outs[hi]);
+      for (const x of L) { const C = await getJSON(`https://clob.polymarket.com/prices-history?market=${x.tok}&startTs=${start - 2 * 3600}&endTs=${start}&fidelity=1`);
+        const c = (C?.history || []).filter(y => y.t <= start); x.p = c.length ? c.at(-1).p : null; }
+      const ln = mainLine(L.filter(x => x.p !== null));
+      if (ln) { noteSpread(row, ln, start); const H = JSON.parse(row.sp_hist); H.at(-1)[1] === ln.line && (H.at(-1)[2] = 'tip') || H.push([start, ln.line, 'tip']); row.sp_hist = JSON.stringify(H); }
+    } catch (e) {}
   }
   // 结算
   if (g.hf !== undefined && g.hf !== null) { row.hf = g.hf; row.af = g.af; row.home_won = g.hf > g.af ? 1 : 0; }

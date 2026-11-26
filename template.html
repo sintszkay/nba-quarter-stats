@@ -651,8 +651,11 @@ $('cPx').oninput = e => { cs.px = Number(e.target.value) || 50; calc(); };
 calc();
 
 // ---------- PM 台账 ----------
-const LEDGER = __LEDGER__.map(r => { const [d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist] = r;
-  return { d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist }; });
+const LEDGER = __LEDGER__.map(r => { const [d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist, sp, spo] = r;
+  return { d, s, t, start, home, away, op, h24, h1, cl, snap, snapT, hf, af, hw, settled, vol, gid, hist, sp: sp ?? null, spo: spo ?? null }; });
+// 让分文字：主队视角的让分 → “NYK −5.5”（让分的一方）/ “PK”
+const spTxt = (r, x) => x === null || x === undefined ? '' : x === 0 ? 'PK' : x < 0 ? `${r.home} −${-x}` : `${r.away} −${x}`;
+const spCell = r => r.sp === null ? '—' : spTxt(r, r.sp) + (r.spo !== null && r.spo !== r.sp ? ` <small>开 ${spTxt(r, r.spo)}</small>` : '');
 // ---- 盘前走势 ----
 const HIST = {}, histWait = {};
 window.HIST_LOAD = (m, o) => { Object.assign(HIST, o); (histWait[m] || []).forEach(f => f()); delete histWait[m]; };
@@ -725,7 +728,7 @@ function bigChart(box, h, o) {
   const P0 = h.map(([m, p]) => o.flip ? 1000 - p : p), f0 = firstPt(h);
   const op = (o.flip ? 1000 - f0[1] : f0[1]) / 10, now = P0.at(-1) / 10, mx = Math.max(...P0) / 10, mn = Math.min(...P0) / 10, dlt = now - op;
   box.innerHTML = `<div class="tl"><div class="tl-h"><span><b>${o.team}</b> 赢的价格</span><span>开盘 <b>${op.toFixed(1)}¢</b></span><span>${o.live ? '现在' : '开赛价'} <b>${now.toFixed(1)}¢</b></span>
-    <span>变化 <b class="${dlt >= 1 ? 'up9' : dlt <= -1 ? 'dn9' : ''}">${dlt >= 0 ? '+' : ''}${dlt.toFixed(1)}¢</b></span><span>区间 <b>${mn.toFixed(1)}–${mx.toFixed(1)}¢</b></span>
+    <span>变化 <b class="${dlt >= 1 ? 'up9' : dlt <= -1 ? 'dn9' : ''}">${dlt >= 0 ? '+' : ''}${dlt.toFixed(1)}¢</b></span><span>区间 <b>${mn.toFixed(1)}–${mx.toFixed(1)}¢</b></span>${o.sp ? `<span>让分 <b>${o.sp}</b></span>` : ''}
     <div class="seg"><button data-v="all">全部</button><button data-v="48">最后 48h</button></div></div><div class="tl-c"></div></div>`;
   box.querySelector('.seg').addEventListener('click', e => { e.stopPropagation(); const bt = e.target.closest('button'); if (bt) { state.win = bt.dataset.v; draw(); } });
   draw();
@@ -740,7 +743,7 @@ function toggleRow(tr, r, flip, team, live, cols) {
   tr.after(det);
   getHist(r, h => { const box = det.querySelector('.tlbox');
     if (!h) { box.innerHTML = `<span class="sub">${HIST_LOAD.failed ? '走势文件没有载入（本地打开时 hist 文件夹要和 index.html 放在一起）' : '这场没有盘前走势记录'}</span>`; return; }
-    bigChart(box, h, { flip, team, live, tip: r.start }); });
+    bigChart(box, h, { flip, team, live, tip: r.start, sp: r.sp === null ? '' : spTxt(r, r.sp) + (r.spo !== null && r.spo !== r.sp ? `（开 ${spTxt(r, r.spo)}）` : '') }); });
 }
 const lg = { s: 'cur', team: '', type: 'all', f: 'all', lo: '', hi: '', shown: 50, sortK: 'diff', sortD: -1 };
 try { Object.assign(lg, JSON.parse(localStorage.getItem('nbalg') || '{}')); lg.shown = 50; } catch (e) {}
@@ -808,16 +811,16 @@ function renderLG() {
   $('lgPendBox').hidden = !pend.length;
   const nowMs = Date.now(), started = r => r.start && Date.parse(r.start) <= nowMs;
   const pp = r => { const h = r.hist; return h && !r.settled && started(r) ? h.at(-1)[1] / 1000 : r.snap ?? r.cl; }; // 已开赛：用冻结走势的最后一点（开赛价）
-  $('lgPend').innerHTML = '<thead><tr><th>开赛（本地时间）</th><th>对阵</th><th>主队价格</th><th>客队价格</th><th>热门走势</th><th>较开盘</th><th>记录时间</th><th></th></tr></thead><tbody>' +
+  $('lgPend').innerHTML = '<thead><tr><th>开赛（本地时间）</th><th>对阵</th><th>主队价格</th><th>客队价格</th><th>让分</th><th>热门走势</th><th>较开盘</th><th>记录时间</th><th></th></tr></thead><tbody>' +
     pend.map((r, i) => { const p = pp(r); if (p === null || p === undefined) return ''; const fh = p >= .5, st = started(r);
       const h = r.hist, f0 = h ? firstPt(h) : null;
       const dl = h ? ((fh ? h.at(-1)[1] - f0[1] : f0[1] - h.at(-1)[1]) / 10) : null;
       return `<tr class="clk" data-pi="${i}"><td class="num">${r.start ? fmtLocal(r.start) : r.d}${st ? ' <small>已开赛</small>' : ''}</td><td>${r.away} @ ${r.home}</td>
-        <td class="num">${fh ? '<b>' : ''}${r.home} ${c1(p)}¢${fh ? '</b>' : ''}</td><td class="num">${!fh ? '<b>' : ''}${r.away} ${c1(1 - p)}¢${!fh ? '</b>' : ''}</td>
+        <td class="num">${fh ? '<b>' : ''}${r.home} ${c1(p)}¢${fh ? '</b>' : ''}</td><td class="num">${!fh ? '<b>' : ''}${r.away} ${c1(1 - p)}¢${!fh ? '</b>' : ''}</td><td class="num">${spCell(r)}</td>
         <td>${h ? sparkSVG(h, !fh) : '—'}</td><td class="num ${dl === null ? '' : dl >= 1 ? 'up9' : dl <= -1 ? 'dn9' : ''}">${dl === null ? '—' : (dl >= 0 ? '+' : '') + dl.toFixed(1) + '¢'}</td>
         <td class="num">${st ? '开赛价·已冻结' : r.snapT ? fmtLocal(r.snapT) : '—'}</td><td class="caret">▾</td></tr>`; }).join('') + '</tbody>';
   $('lgPend').onclick = e => { const tr = e.target.closest('tr.clk'); if (!tr) return; const r = pend[+tr.dataset.pi], fh = pp(r) >= .5;
-    toggleRow(tr, r, !fh, fh ? r.home : r.away, !started(r), 8); };
+    toggleRow(tr, r, !fh, fh ? r.home : r.away, !started(r), 9); };
   for (const tr of $('lgPend').querySelectorAll('tr.clk')) { const r = pend[+tr.dataset.pi], k = r.d + r.home + r.away; if (lgOpen.has(k)) { lgOpen.delete(k); tr.click(); } }
 
   // 比赛台账

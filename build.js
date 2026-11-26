@@ -14,7 +14,7 @@ try {
 } catch (e) { /* 还没跑过 pm.js */ }
 let ledger = [];
 try {
-  const L = db.prepare(`SELECT game_id,date,season,stype,start,home,away,open_p,h24_p,h1_p,close_p,snap_p,snap_t,hf,af,home_won,status,volume,hist FROM pm_ledger
+  const L = db.prepare(`SELECT game_id,date,season,stype,start,home,away,open_p,h24_p,h1_p,close_p,snap_p,snap_t,hf,af,home_won,status,volume,hist,sp_line,sp_open FROM pm_ledger
     WHERE status IN ('settled','pending') ORDER BY start`).all();
   // 盘前走势压缩成 [[距开赛分钟(负数), 主队价×1000]]，连续相同价格只留首尾
   const pack = r => { if (!r.hist) return null; const t0 = Date.parse(r.start) / 1000, out = [];
@@ -28,7 +28,7 @@ try {
   ledger = L.map(r => { const h = pack(r), inline = r.status !== 'settled' || r.date >= recent;
     if (h && !inline) (files[r.date.slice(0, 7)] ??= {})[r.game_id] = h;
     return [r.date, r.season, r.stype, r.start, r.home, r.away, r.open_p, r.h24_p, r.h1_p,
-      r.close_p, r.snap_p, r.snap_t, r.hf, r.af, r.home_won, r.status === 'settled' ? 1 : 0, r.volume ? Math.round(r.volume) : null, r.game_id, inline ? h : 0]; });
+      r.close_p, r.snap_p, r.snap_t, r.hf, r.af, r.home_won, r.status === 'settled' ? 1 : 0, r.volume ? Math.round(r.volume) : null, r.game_id, inline ? h : 0, r.sp_line, r.sp_open]; });
   // 较早比赛的走势按月份拆成 hist/YYYY-MM.js，点开时才加载（<script> 方式，本地双击打开也能用）
   const HD = path.join(__dirname, 'hist'); fs.mkdirSync(HD, { recursive: true });
   for (const f of fs.readdirSync(HD)) if (/^d{4}-d{2}.js$/.test(f) && !files[f.slice(0, 7)]) fs.unlinkSync(path.join(HD, f));
