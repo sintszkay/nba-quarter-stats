@@ -22,7 +22,7 @@
 [hidden] { display: none !important }
 body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--body);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px }
-.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 20px }
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px }
 header h1 { font: 700 34px/1.05 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance }
 header p { margin: 6px 0 0; color: var(--muted); max-width: 70ch }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px }
@@ -135,6 +135,17 @@ footer { color: var(--muted); font-size: 12px }
 .tl svg text.tip-t { fill: var(--ink); font-weight: 600 }
 .caret { color: var(--muted); font-size: 12px }
 .games th.sort { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px }
+
+.reversion-entry { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 20px }
+.reversion-entry > div { flex: 1 1 320px }
+.reversion-entry h2 { margin: 0 }
+.reversion-entry .sub { margin: 6px 0 0 }
+.reversion-link { display: inline-flex; justify-content: center; align-items: center; padding: 11px 16px;
+  border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--accent-ink);
+  font: 500 14px/1.5 var(--body); text-decoration: none }
+.reversion-link:hover { filter: brightness(.95) }
+.reversion-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px }
+@media (max-width: 720px) { .reversion-link { width: 100% } }
 </style>
 
 <div class="wrap">
@@ -145,6 +156,14 @@ footer { color: var(--muted); font-size: 12px }
   </header>
 
   <div class="seg tabs" id="tab" role="tablist"><button data-v="q">分节统计</button><button data-v="pm">PM 台账</button></div>
+
+  <section class="panel reversion-entry" aria-label="投篮命中率均值回归">
+    <div>
+      <h2>投篮命中率均值回归</h2>
+      <p class="sub">比较领先方与落后方的整体 FG% 偏差、标准差（σ）及相似历史情境的回归率。</p>
+    </div>
+    <a class="reversion-link" href="mean-reversion.html">打开均值回归计算器 →</a>
+  </section>
 
   <section class="panel pmv pmctl" aria-label="台账筛选">
     <label class="ctl"><span>赛季</span><select id="lgS"></select></label>
