@@ -4,47 +4,202 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>雙方投籃命中率 · 均值回歸計算器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
 <style>
-:root{color-scheme:light dark;--bg:#f2f5f7;--paper:#fff;--ink:#192d38;--muted:#586b78;--line:#d7e1e7;--soft:#f3f7f9;--blue:#1f678d;--red:#ad4640;--green:#216b4e;--accent:#eaf3f8}
-@media(prefers-color-scheme:dark){:root{--bg:#101b22;--paper:#18262f;--ink:#e7eff4;--muted:#b1c1cc;--line:#384c5a;--soft:#20323e;--blue:#8ccbe9;--red:#ffada4;--green:#93d5b6;--accent:#263d4b}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 system-ui,-apple-system,"PingFang TC",sans-serif}main{max-width:1160px;margin:28px auto;padding:30px;background:var(--paper);border:1px solid var(--line);border-radius:12px}h1{font-size:28px;line-height:1.35;margin:4px 0 14px}h2{font-size:21px;line-height:1.5;margin:0 0 12px}h3{font-size:17px;margin:0 0 12px}p{margin:10px 0}.eyebrow{font-size:13px;letter-spacing:.08em;color:var(--muted)}.muted,small{color:var(--muted)}small{font-size:13px}.lead{background:var(--accent);border-left:4px solid var(--blue);padding:13px 17px;margin:18px 0 26px}.section{margin-top:30px;padding-top:26px;border-top:1px solid var(--line)}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}.toolbar label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}fieldset{min-width:0;border:1px solid var(--line);border-radius:8px;margin:0;padding:18px}legend{font-weight:600;padding:0 8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:flex;flex-direction:column;gap:5px;font-size:14px}.field.wide{grid-column:1/-1}input,select,button{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:8px 10px;max-width:100%;min-height:42px}input{min-width:0;width:100%;font-variant-numeric:tabular-nums}select{min-width:0}button{cursor:pointer;background:var(--soft)}button:hover{background:var(--accent)}input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px}.current{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;align-items:center}.big{font-size:27px;line-height:1.25;font-weight:600;letter-spacing:-.02em}.sigma{font-size:30px;font-variant-numeric:tabular-nums}.hot{color:var(--red)}.cold{color:var(--blue)}.pos{color:var(--green)}.neg{color:var(--red)}.tabular{font-variant-numeric:tabular-nums}.note{padding:13px 16px;background:var(--soft);border-radius:6px}.error{color:var(--red);padding:12px 0}.curve{width:100%;display:block;min-height:220px}.curve text{font:13px system-ui,-apple-system,"PingFang TC",sans-serif;fill:var(--ink)}.curve .axis{stroke:var(--line);stroke-width:1}.curve .bell{stroke:var(--muted);stroke-width:2;fill:none}.curve .zero{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 5}.curve .leader{stroke:var(--red);fill:var(--red)}.curve .trailer{stroke:var(--blue);fill:var(--blue)}.summary-line{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap}.tail-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:14px}.tail-grid p{margin:0}.history-controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end}.history-controls .field{min-width:0}.check{display:flex;gap:8px;align-items:center;font-size:14px}.check input{width:18px;min-height:18px;flex:none}.tw{overflow:auto;border:1px solid var(--line);border-radius:6px;margin:16px 0}table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}th,td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:var(--soft);font-weight:600}tr:last-child td{border-bottom:0}td{font-variant-numeric:tabular-nums}.rate{font-size:21px}.matrix td:not(:first-child){min-width:160px}.matrix small{display:block}.history-table{min-width:590px}.source-table{min-width:840px}details{margin:24px 0}summary{cursor:pointer;font-weight:600}details>div{margin-top:14px}ul{padding-left:23px}li{margin:8px 0}a{color:var(--blue)}footer{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;line-height:1.8}code{white-space:normal;font-size:13px}#history-caption{margin-bottom:14px}.hidden,[hidden]{display:none!important}.export-note{font-size:13px}
-@media(max-width:700px){main{margin:0;border:0;border-radius:0;padding:21px 16px}h1{font-size:24px}.pair,.tail-grid{grid-template-columns:1fr}.pair{gap:16px}.history-controls{grid-template-columns:1fr 1fr}.history-controls .field:last-child{grid-column:1/-1}.big{font-size:25px}fieldset{padding:14px}.section{margin-top:25px;padding-top:22px}.toolbar{align-items:stretch}.toolbar>label{width:100%}.toolbar select{flex:1}.curve{min-height:190px}}
-@media print{main{max-width:none;border:0;margin:0}.toolbar,button{display:none}.tw{overflow:visible}table{min-width:0;font-size:11px}.section{break-inside:avoid}}
+:root {
+  color-scheme: light;
+  --bg: #F3F5F8; --panel: #FFFFFF; --ink: #142033; --muted: #5C6A80; --line: #DCE2EA;
+  --accent: #D9560B; --accent-ink: #FFFFFF; --win: #1F8A5B; --lose: #C23B3B; --mid: #EEF1F5;
+  --display: "Barlow Condensed", "Noto Sans SC", system-ui, sans-serif;
+  --body: "Noto Sans SC", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E1520; --panel: #16202E; --ink: #E7ECF3; --muted: #93A1B5; --line: #263347;
+  --accent: #F27A2E; --accent-ink: #10161F; --win: #3DBE85; --lose: #E86464; --mid: #1C2838;
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0E1520; --panel: #16202E; --ink: #E7ECF3; --muted: #93A1B5; --line: #263347;
+  --accent: #F27A2E; --accent-ink: #10161F; --win: #3DBE85; --lose: #E86464; --mid: #1C2838;
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+[hidden], .hidden { display: none !important }
+body {
+  margin: 8px; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px }
+.wrap > * { min-width: 0 }
+header h1 { font: 700 34px/1.05 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance }
+header p { margin: 7px 0 0; color: var(--muted); max-width: 76ch }
+.mobile-break { display: none }
+.page-links { margin-top: 6px; font-size: 13px }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px }
+.chip { font: 500 12px var(--body); border-radius: 999px; padding: 3px 10px; border: 1px solid var(--line); background: var(--mid) }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg) }
+.page-nav { width: 100%; max-width: 360px }
+.page-nav a { flex: 1; font: 500 14px var(--body); color: var(--muted); text-decoration: none; text-align: center; padding: 11px 8px; min-height: 44px }
+.page-nav a + a { border-left: 1px solid var(--line) }
+.page-nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink) }
+.page-nav a:not([aria-current]):hover { background: var(--mid); color: var(--ink) }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px }
+.section { margin: 0 }
+h2 { font: 700 20px/1.2 var(--display); letter-spacing: .02em; margin: 0 0 6px }
+h3 { font: 700 16px/1.35 var(--display); margin: 20px 0 8px }
+p { margin: 8px 0 12px }
+.muted, small { color: var(--muted) }
+small { font-size: 12px; line-height: 1.65 }
+.lead { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; max-width: 90ch }
+.lead strong { color: var(--ink); font-weight: 500 }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 16px; margin: 12px 0 16px }
+.toolbar > label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; min-width: 0 }
+.toolbar select { width: auto; max-width: 100% }
+.toolbar > .muted { font-size: 12px }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px }
+fieldset { min-width: 0; margin: 0; padding: 12px 14px 8px; border: 1px solid var(--line); border-radius: 8px }
+legend { padding: 0 6px; font: 600 15px var(--body); color: var(--ink) }
+.grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px 14px }
+.field { display: grid; align-content: start; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; letter-spacing: .02em }
+.field.wide { grid-column: 1 / -1 }
+select, input[type="number"] {
+  width: 100%; min-width: 0; max-width: 100%; min-height: 40px; color: var(--ink); background: var(--bg);
+  font: 500 14px/1.5 var(--body); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+}
+input[type="number"] { font-variant-numeric: tabular-nums; letter-spacing: 0 }
+input[type="checkbox"] { accent-color: var(--accent) }
+button { font: 500 13px/1.5 var(--body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; min-height: 42px; cursor: pointer }
+button:hover { border-color: var(--accent) }
+#use-current { background: var(--accent); color: var(--accent-ink); border-color: var(--accent) }
+a { color: var(--accent) }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px }
+select:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent) }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none }
+.current { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; align-items: baseline; justify-content: space-between; gap: 12px }
+.big { font: 700 52px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: .01em }
+.sigma { font: 600 28px/1.2 var(--mono); font-variant-numeric: tabular-nums }
+.hot { color: var(--lose) }
+.cold { color: var(--accent) }
+.pos { color: var(--win) }
+.neg, .error { color: var(--lose) }
+.tabular { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.current small { display: block; margin-top: 5px; font: 500 12px/1.6 var(--mono); color: var(--muted) }
+fieldset > p { margin: 5px 0 0 }
+.calc-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 16px 20px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line) }
+.sigma-summary { align-self: center; min-width: 0 }
+.sigma-summary .q { color: var(--muted); font-size: 13px }
+.summary-value { font: 700 60px/1.05 var(--display); font-variant-numeric: tabular-nums; letter-spacing: .01em; margin: 5px 0 8px }
+.summary-value .tabular { font: inherit }
+#direction-note { color: var(--muted); font-size: 12.5px; margin-bottom: 14px }
+.tail-grid { display: grid; gap: 8px }
+.tail-grid p { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; margin: 0; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted) }
+.tail-grid strong { font: 600 15px var(--mono); color: var(--ink) }
+.distribution { min-width: 0; align-self: center }
+.distribution h3 { margin: 0; color: var(--muted); font: 500 12px var(--body) }
+.curve { width: 100%; display: block; min-height: 205px }
+.curve text { font: 11px var(--mono); fill: var(--muted) }
+.curve .axis { stroke: var(--line); stroke-width: 1 }
+.curve .bell { stroke: var(--muted); stroke-width: 2; fill: none }
+.curve .zero { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 5 }
+.curve .leader { stroke: var(--lose); fill: var(--lose) }
+.curve .trailer { stroke: var(--accent); fill: var(--accent) }
+.model-note { grid-column: 1 / -1; margin: 0; padding-top: 2px }
+.history-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 16px; align-items: end; margin: 14px 0 }
+.check { display: inline-flex !important; align-items: center; gap: 6px !important; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--bg); color: var(--ink) !important; cursor: pointer; min-height: 42px }
+.check input { width: 16px; height: 16px; margin: 0; flex: none }
+.note { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--mid); font-size: 12.5px; line-height: 1.7 }
+.error { font-size: 13px; margin: 12px 0 }
+.tw { overflow-x: auto; margin: 12px 0; scrollbar-color: var(--line) transparent }
+table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums }
+th, td { text-align: left; vertical-align: middle; padding: 9px 10px; border-bottom: 1px solid var(--line) }
+th { color: var(--muted); font: 500 12px/1.5 var(--body); white-space: nowrap; background: transparent }
+td:not(:first-child) { font-family: var(--mono) }
+tr:last-child td { border-bottom: 0 }
+.history-table { min-width: 600px }
+.history-table .rate { font: 700 30px/1 var(--display); color: var(--ink) }
+.history-table tbody tr:last-child { background: var(--mid) }
+.source-table { min-width: 840px }
+.matrix td:not(:first-child) { min-width: 150px }
+.matrix small { display: block; margin-top: 4px; font: 500 11px var(--mono) }
+details > summary { cursor: pointer; font: 700 18px/1.4 var(--display); color: var(--ink) }
+details > div { margin-top: 16px }
+ul { padding-left: 22px; font-size: 12.5px; color: var(--muted); line-height: 1.8 }
+li { margin: 9px 0 }
+li strong { color: var(--ink) }
+footer { color: var(--muted); font-size: 12px; line-height: 1.8; padding-top: 2px }
+code { white-space: normal; font: 500 12px var(--mono) }
+@media (max-width: 720px) {
+  .mobile-break { display: block }
+  .pair, .calc-result { grid-template-columns: minmax(0, 1fr) }
+  .history-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
+  .history-controls > :last-child { grid-column: 1 / -1 }
+  .toolbar > label:not(.check) { width: 100% }
+  .toolbar > label:not(.check) select { flex: 1 }
+  .big { font-size: 46px }
+  .sigma { font-size: 26px }
+  .summary-value { font-size: 56px }
+  .calc-result { gap: 18px }
+  .tail-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px }
+  .tail-grid p { display: block }
+  .tail-grid strong { display: block; margin-top: 4px }
+  .distribution { padding-top: 12px; border-top: 1px solid var(--line) }
+  .curve { min-height: 195px }
+  .model-note { grid-column: auto }
+}
+@media print {
+  body { margin: 0; padding: 0 }
+  .wrap { max-width: none; gap: 12px }
+  .panel { break-inside: avoid }
+  .page-nav, button { display: none }
+  .tw { overflow: visible }
+  table { min-width: 0; font-size: 10px }
+}
 </style>
 </head>
-<body><main>
-<header><nav class="toolbar" aria-label="網站導航"><a href="./">NBA 統計首頁</a><span aria-hidden="true">·</span><a href="journal/">交易日誌</a></nav><div class="eyebrow">NBA · 盤中交易研究 · 香港 2026-11-28</div>
-<h1>雙方投籃命中率：均值回歸計算器</h1>
-<p class="muted">以整體 FG% 同時量度領先方偏高、落後方偏低，並查看相似歷史情境的後續表現。</p>
-<div class="lead"><strong>先看偏離幾多 σ，再看歷史回歸率。</strong>σ 衡量當前投籃表現的離群程度；歷史回歸率描述後續新投籃是否更接近均值。交易測試全部提前平倉。</div></header>
+<body><main class="wrap">
+<header>
+  <h1>NBA 投籃命中率<br class="mobile-break">均值回歸</h1>
+  <p class="page-links"><a href="./">分節領先勝率 →</a> · <a href="journal/">交易日誌 →</a></p>
+  <p>比較領先方與落後方的整體 FG% 偏差、標準差（σ）及相似歷史情境的回歸率。</p>
+  <div class="chips"><span class="chip">整體 FG%</span><span class="chip">盤中平倉研究</span><span class="chip">研究快照 2026-11-28</span></div>
+</header>
+<nav class="seg page-nav" aria-label="統計工具"><a href="./">分節統計</a><a href="#calc-title" aria-current="page">均值回歸</a></nav>
 
-<section aria-labelledby="calc-title">
+<section class="panel" aria-labelledby="calc-title">
 <h2 id="calc-title">輸入兩隊當刻數據</h2>
+<p class="lead"><strong>先看偏離幾多 σ，再看歷史回歸率。</strong>σ 衡量當前投籃表現的離群程度；歷史回歸率描述後續新投籃是否更接近均值。交易測試全部提前平倉。</p>
 <div class="toolbar"><label for="preset">馬刺當日預設 <select id="preset"><option value="1">第二注 · 11:16:19</option><option value="0">第一注 · 11:08:56</option><option value="2">第三注 · 11:27:10</option><option value="3">第四注 · 11:31:05</option><option value="4">真正半場 · 11:40:07</option><option value="manual">自訂情境</option></select></label><span class="muted" id="preset-context"></span></div>
 <div class="pair">
 <fieldset><legend>領先方</legend><div class="grid">
-<label class="field wide" for="leader-team">球隊<select id="leader-team"></select></label>
-<label class="field wide" for="leader-mean">賽前 FG% 基準<input id="leader-mean" type="number" min="1" max="99" step="any" inputmode="decimal"></label>
+<label class="field" for="leader-team">球隊<select id="leader-team"></select></label>
+<label class="field" for="leader-mean">賽前 FG% 基準<input id="leader-mean" type="number" min="1" max="99" step="any" inputmode="decimal"></label>
 <label class="field" for="leader-made">目前投中<input id="leader-made" type="number" min="0" max="200" step="1" inputmode="numeric"></label>
 <label class="field" for="leader-attempts">目前出手<input id="leader-attempts" type="number" min="1" max="200" step="1" inputmode="numeric"></label>
 </div><div class="current"><div><div class="big" id="leader-fg">—</div><small id="leader-diff">—</small></div><div class="sigma hot" id="leader-z">—</div></div><p><small id="leader-se">—</small></p></fieldset>
 <fieldset><legend>落後方</legend><div class="grid">
-<label class="field wide" for="trailer-team">球隊<select id="trailer-team"></select></label>
-<label class="field wide" for="trailer-mean">賽前 FG% 基準<input id="trailer-mean" type="number" min="1" max="99" step="any" inputmode="decimal"></label>
+<label class="field" for="trailer-team">球隊<select id="trailer-team"></select></label>
+<label class="field" for="trailer-mean">賽前 FG% 基準<input id="trailer-mean" type="number" min="1" max="99" step="any" inputmode="decimal"></label>
 <label class="field" for="trailer-made">目前投中<input id="trailer-made" type="number" min="0" max="200" step="1" inputmode="numeric"></label>
 <label class="field" for="trailer-attempts">目前出手<input id="trailer-attempts" type="number" min="1" max="200" step="1" inputmode="numeric"></label>
 </div><div class="current"><div><div class="big" id="trailer-fg">—</div><small id="trailer-diff">—</small></div><div class="sigma cold" id="trailer-z">—</div></div><p><small id="trailer-se">—</small></p></fieldset>
 </div>
 <p id="calc-error" class="error" role="alert" hidden></p>
-<div id="calc-results" aria-live="polite">
-<div class="summary-line"><p><strong>雙邊差距：<span id="combined-z" class="tabular">—</span></strong></p><p class="muted" id="direction-note"></p></div>
-<svg id="sigma-curve" class="curve" role="img" aria-labelledby="curve-title curve-desc"><title id="curve-title">兩隊 FG% 的標準化偏差</title><desc id="curve-desc">中央為各自基準；標記分別顯示領先與落後方距離均值多少個抽樣標準差。</desc></svg>
-<div class="tail-grid"><p><span class="hot">領先方</span> 同等或更高命中表現的機率：<strong id="leader-tail" class="tabular">—</strong></p><p><span class="cold">落後方</span> 同等或更低命中表現的機率：<strong id="trailer-tail" class="tabular">—</strong></p></div>
-<p><small>上述機率採固定基準、每次出手獨立的二項模型，描述當前表現有多罕見。1σ＝√[基準 × (1−基準) ÷ 出手數]；基準由過往比賽估計，未納入基準誤差、陣容及出手品質變化。</small></p>
+<div id="calc-results" class="calc-result" aria-live="polite">
+  <div class="sigma-summary">
+    <div class="q">雙邊標準化差距</div>
+    <div class="summary-value"><span id="combined-z" class="tabular">—</span></div>
+    <p id="direction-note"></p>
+    <div class="tail-grid"><p><span class="hot">領先方</span> 同等或更高命中表現的機率：<strong id="leader-tail" class="tabular">—</strong></p><p><span class="cold">落後方</span> 同等或更低命中表現的機率：<strong id="trailer-tail" class="tabular">—</strong></p></div>
+  </div>
+  <div class="distribution"><h3>各自均值為 0σ</h3><svg id="sigma-curve" class="curve" role="img" aria-labelledby="curve-title curve-desc"><title id="curve-title">兩隊 FG% 的標準化偏差</title><desc id="curve-desc">中央為各自基準；標記分別顯示領先與落後方距離均值多少個抽樣標準差。</desc></svg></div>
+  <p class="model-note"><small>上述機率採固定基準、每次出手獨立的二項模型，描述當前表現有多罕見。1σ＝√[基準 × (1−基準) ÷ 出手數]；基準由過往比賽估計，未納入基準誤差、陣容及出手品質變化。</small></p>
 </div>
 </section>
 
-<section class="section" aria-labelledby="history-title">
+<section class="panel section" aria-labelledby="history-title">
 <h2 id="history-title">相似情境：之後兩邊有幾常回歸？</h2>
 <p class="muted">歷史範圍固定為「賽前熱門 ≥65%、上半場落後 ≥10 分、兩隊各至少20次出手」。每場只取第一個符合門檻的時點。</p>
 <div class="history-controls">
@@ -66,14 +221,14 @@
 </div>
 </section>
 
-<section class="section" aria-labelledby="actual-title">
+<section class="panel section" aria-labelledby="actual-title">
 <h2 id="actual-title">馬刺四次買入：雙方整體 FG% 核對</h2>
 <p>11/28預設使用開賽前基準：馬刺 <strong>46.0%</strong>（798/1735，19場）；湖人 <strong>48.4%</strong>（738/1524，18場）。你第二注最符合兩邊同時偏離：馬刺低約7.9個百分點、湖人高約7.6個百分點。</p>
 <div class="tw"><table class="source-table"><thead><tr><th>香港買入時間</th><th>馬刺投籃</th><th>馬刺偏差</th><th>馬刺 σ</th><th>湖人投籃</th><th>湖人偏差</th><th>湖人 σ</th></tr></thead><tbody><tr><td>11:08:56</td><td>7/18（38.9%）</td><td>−7.1個百分點</td><td>−0.60σ</td><td>11/21（52.4%）</td><td>+4.0個百分點</td><td>+0.36σ</td></tr><tr><td>11:16:19</td><td>8/21（38.1%）</td><td>−7.9個百分點</td><td>−0.73σ</td><td>14/25（56.0%）</td><td>+7.6個百分點</td><td>+0.76σ</td></tr><tr><td>11:27:10</td><td>11/27（40.7%）</td><td>−5.3個百分點</td><td>−0.55σ</td><td>16/32（50.0%）</td><td>+1.6個百分點</td><td>+0.18σ</td></tr><tr><td>11:31:05</td><td>12/30（40.0%）</td><td>−6.0個百分點</td><td>−0.66σ</td><td>18/34（52.9%）</td><td>+4.5個百分點</td><td>+0.53σ</td></tr></tbody></table></div>
 <p><small>四次買入均在真正半場結束前。選擇預設可逐次查看；自訂球隊基準採截至美國11/27已完成比賽的本季資料，與11/28預設的賽前基準有時間上的分別。</small></p>
 </section>
 
-<details class="section"><summary>固定百分點門檻的對照結果</summary><div>
+<details class="panel section"><summary>固定百分點門檻的對照結果</summary><div>
 <p>同一批資料、相同出手數限制，分別只看落後方偏低、領先方偏高，以及兩方同時符合。每場一倉、沒有加倉，全部於第三節內退出。5個百分點是探索門檻，並非已驗證最佳值。</p>
 <div class="tw"><table><thead><tr><th>入場條件</th><th>可用交易</th><th>到時平倉：每份淨收益¢</th><th>95%區間¢</th><th>反彈8¢或到時退出：每份淨收益¢</th></tr></thead><tbody><tr><td>不加FG偏離篩選</td><td>158</td><td>−0.2</td><td>−3.4 至 +2.8</td><td>−3.1</td></tr><tr><td>只要求落後方低至少5個百分點</td><td>114</td><td>−0.6</td><td>−4.3 至 +2.9</td><td>−3.5</td></tr><tr><td>只要求領先方高至少5個百分點</td><td>114</td><td>−0.8</td><td>−4.3 至 +2.7</td><td>−3.3</td></tr><tr><td>兩方同時各偏離至少5個百分點</td><td>76</td><td>−1.0</td><td>−5.3 至 +3.2</td><td>−3.2</td></tr></tbody></table></div>
 <p>雙方各偏離至少5個百分點的76筆固定時間退出，平均約−1.0¢／份，95%區間約−5.3至+3.2¢。目前未確認穩定正EV。調高、調低門檻時，入場時點與樣本會一併改變。</p>
@@ -81,7 +236,7 @@
 <p><small>格內為固定到時平倉的平均淨收益及可用交易數。所有格均列出，屬同一資料上的敏感度探索；不能把最好看的格子當作全新驗證。</small></p>
 </div></details>
 
-<details class="section"><summary>如何理解 σ、回歸率及資料限制</summary><div><ul>
+<details class="panel section"><summary>如何理解 σ、回歸率及資料限制</summary><div><ul>
 <li><strong>FG%＝投中÷出手。</strong>包含兩分與三分投籃，罰球不計。σ 是二項抽樣模型下當前命中率的標準差，並非球隊歷年單場FG%的實測標準差；相同百分點偏差，在較多出手下對應較高σ。</li>
 <li><strong>雙邊差距</strong>＝[(領先方FG−其基準)−(落後方FG−其基準)] ÷ √[兩邊抽樣變異數之和]。這裡假設兩邊抽樣獨立；單邊σ不能直接相加。</li>
 <li>極端程度是固定基準二項分布的單邊尾部機率。後續回歸率是歷史條件頻率，95%範圍採Wilson二項近似，未調整同日相關；樣本少於30場會另作提示。它不是已校準的即場勝率或自動買入訊號。</li>
@@ -130,3 +285,4 @@ window.fgResearch={binomialTail,wilson,findMatches,tradeNet,get state(){return {
 })();
 </script>
 </body></html>
+
