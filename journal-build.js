@@ -65,11 +65,11 @@ blockquote { margin: 12px 0; padding: 8px 14px; border-left: 3px solid var(--acc
 hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0 }
 code { font-family: var(--mono); font-size: .9em; background: var(--mid); padding: 1px 5px; border-radius: 4px }
 .tw { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px }
-table { border-collapse: collapse; width: 100%; font-size: 14px }
-th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14px }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: normal }
 th { background: var(--mid); font-weight: 600; color: var(--muted); font-size: 13px }
 tbody tr:last-child td { border-bottom: 0 }
-td.n { font-family: var(--mono); font-variant-numeric: tabular-nums }
+td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap }
 strong { font-weight: 700 }
 .list a { display: block; padding: 12px 0; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--ink) }
 .list a b { color: var(--accent); font-family: var(--mono); margin-right: 12px }
